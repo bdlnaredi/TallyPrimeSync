@@ -1,4 +1,4 @@
-# Bahi: your TallyPrime books on your phone
+# TallyPrimeSync (Bahi): your TallyPrime books on your phone
 
 Bahi is a free, self-hosted alternative to apps like Credflow and Livekeeping. A small agent on your Tally PC copies your books to your own server, and you open them on your phone. You can see ledgers, vouchers, bill-wise dues, stock, GST and reports, and share Tally-style PDFs on WhatsApp.
 
@@ -16,6 +16,11 @@ On a computer, Bahi switches to a wide layout with a menu down the left:
 <img src="docs/images/desktop-ledger.png" width="720" alt="Ledger on a computer: statement with pending bills beside it">
 
 *Screenshots use made-up demo data.*
+
+## Where it runs
+
+- **On a cloud server, no Unraid needed:** Oracle Cloud's free server or any small VPS, set up with one command, HTTPS included, with every night's backup copied to your Google Drive or OneDrive. See [docs/CLOUD.md](docs/CLOUD.md).
+- **On your own server** (Unraid or any Docker host): see [docs/INSTALL.md](docs/INSTALL.md).
 
 ## What you get
 
@@ -69,7 +74,7 @@ On a computer, Bahi switches to a wide layout with a menu down the left:
 
 `unraid/bahi.xml` is an Unraid Docker template you can add by hand (see the installation guide). Bahi is not listed in Community Apps.
 
-The Docker image is built automatically on every change and published as `ghcr.io/bdlnaredi/bahi:latest`.
+The Docker image is built automatically on every change and published as `ghcr.io/bdlnaredi/tallyprimesync:latest`.
 
 ## License
 

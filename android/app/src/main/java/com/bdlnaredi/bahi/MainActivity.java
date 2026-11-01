@@ -55,8 +55,8 @@ import java.util.regex.Pattern;
  */
 public class MainActivity extends Activity {
     private static final int REQ_FILE = 7;
-    private static final String RELEASE_API = "https://api.github.com/repos/bdlnaredi/bahi/releases/tags/android";
-    private static final String APK_URL = "https://github.com/bdlnaredi/bahi/releases/download/android/Bahi.apk";
+    private static final String RELEASE_API = "https://api.github.com/repos/bdlnaredi/TallyPrimeSync/releases/tags/android";
+    private static final String APK_URL = "https://github.com/bdlnaredi/TallyPrimeSync/releases/download/android/Bahi.apk";
 
     private SharedPreferences prefs;
     private WebView web;

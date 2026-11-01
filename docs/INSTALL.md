@@ -60,7 +60,7 @@ Bahi isn't listed in Community Apps, so add its template by hand once:
 
 1. Open the Unraid terminal (`>_`) and run this to download the template:
    ```
-   wget -O /boot/config/plugins/dockerMan/templates-user/my-bahi.xml https://raw.githubusercontent.com/bdlnaredi/bahi/main/unraid/bahi.xml
+   wget -O /boot/config/plugins/dockerMan/templates-user/my-bahi.xml https://raw.githubusercontent.com/bdlnaredi/TallyPrimeSync/main/unraid/bahi.xml
    ```
 2. Go to the **Docker** tab and click **Add Container**.
 3. In the **Template** dropdown, choose **bahi** (under *User templates*).
@@ -82,7 +82,7 @@ Use this if you prefer stacks. Paste this into **Docker → Compose → Add New 
 ```yaml
 services:
   bahi:
-    image: ghcr.io/bdlnaredi/bahi:latest
+    image: ghcr.io/bdlnaredi/tallyprimesync:latest
     container_name: bahi
     restart: unless-stopped
     ports:
@@ -102,13 +102,13 @@ To update: **Compose Pull**, then **Compose Up**.
 
 ### Bahi Sync app (recommended)
 
-1. On the Tally PC, download **[BahiSync-Setup.exe](https://github.com/bdlnaredi/bahi/releases/download/windows/BahiSync-Setup.exe)** and run it. Windows may show *Windows protected your PC*: click **More info → Run anyway** (the app isn't signed with a paid certificate), then **Yes** to let it install.
+1. On the Tally PC, download **[BahiSync-Setup.exe](https://github.com/bdlnaredi/TallyPrimeSync/releases/download/windows/BahiSync-Setup.exe)** and run it. Windows may show *Windows protected your PC*: click **More info → Run anyway** (the app isn't signed with a paid certificate), then **Yes** to let it install.
 2. It installs into `C:\Program Files\Bahi Sync` with everything it needs, adds **Bahi Sync** to the Start menu (and the desktop if you tick it) and an uninstaller (Windows Settings → Apps). If you used `BahiSync.exe` or the batch files before, close nothing: the installer stops the old copy, and the installed one brings your settings and sync records over from that folder, starts with Windows in its place, and says so in its log. The old folder can then be deleted.
 3. The first time (on a new PC), it asks for the **Bahi server address** and the **sync token** (`SYNC_TOKEN` from Unraid). Tally's address and the sync start date can stay as they are. Click **Test connection**, then **Save**.
 
 Bahi Sync then sits in the system tray (bottom-right of the taskbar), starts with Windows, and checks Tally every 2 minutes. Its window shows whether Tally and the server can be reached, the last sync and the log, with **Sync now**, **Pause**, **Settings**, **Companies** and **Tools** (Diagnose, Save a voucher or stock figures for a problem report, a full resend, open the log or folder). Closing the window keeps it syncing; to stop, right-click the tray icon → **Exit**.
 
-It replaces the batch files and the Windows scheduled task (it removes the old task itself). The sync files keep updating themselves from your server, and the app offers its own new versions in the window. Prefer not to install? [BahiSync.exe](https://github.com/bdlnaredi/bahi/releases/download/windows/BahiSync.exe) is the same app on its own: put it in a folder such as `C:\Bahi` and run it from there.
+It replaces the batch files and the Windows scheduled task (it removes the old task itself). The sync files keep updating themselves from your server, and the app offers its own new versions in the window. Prefer not to install? [BahiSync.exe](https://github.com/bdlnaredi/TallyPrimeSync/releases/download/windows/BahiSync.exe) is the same app on its own: put it in a folder such as `C:\Bahi` and run it from there.
 
 #### More than one company
 
@@ -117,7 +117,7 @@ Every company open in TallyPrime is synced, and each one is its own company in t
 ### Or: the batch-file setup
 
 
-1. On the Tally PC, download **[the agent folder](https://github.com/bdlnaredi/bahi/tree/main/agent)**. The easiest way is **Code → Download ZIP** on the repository's main page, then copy the `agent` folder out of the zip.
+1. On the Tally PC, download **[the agent folder](https://github.com/bdlnaredi/TallyPrimeSync/tree/main/agent)**. The easiest way is **Code → Download ZIP** on the repository's main page, then copy the `agent` folder out of the zip.
 2. Put the files in a permanent folder, for example `C:\Bahi`. Don't run them from Downloads. The folder should contain:
    ```
    C:\Bahi\Setup.bat
@@ -184,7 +184,7 @@ Install Tailscale on your phone and open `http://UNRAID-TAILSCALE-IP:8780`. You 
 
 ### Android app (recommended)
 
-1. On the phone, open **https://github.com/bdlnaredi/bahi/releases/download/android/Bahi.apk** in Chrome. It downloads `Bahi.apk`.
+1. On the phone, open **https://github.com/bdlnaredi/TallyPrimeSync/releases/download/android/Bahi.apk** in Chrome. It downloads `Bahi.apk`.
 2. Tap the download and **Install**. The first time, Android asks to allow installing from Chrome: tap **Settings → Allow from this source**, go back and tap **Install**.
 3. Open **Bahi**, type your server address (`https://books.yourdomain.com`) and tap **Connect**. Pass the Cloudflare email code if asked, then enter your **app password**.
 

@@ -13,8 +13,8 @@ namespace BahiSync
 {
     class MainForm : Form
     {
-        const string ReleaseApi = "https://api.github.com/repos/bdlnaredi/bahi/releases/tags/windows";
-        const string ExeUrl = "https://github.com/bdlnaredi/bahi/releases/download/windows/BahiSync.exe";
+        const string ReleaseApi = "https://api.github.com/repos/bdlnaredi/TallyPrimeSync/releases/tags/windows";
+        const string ExeUrl = "https://github.com/bdlnaredi/TallyPrimeSync/releases/download/windows/BahiSync.exe";
 
         Dictionary<string, object> cfg;
         Process sync;
@@ -79,6 +79,9 @@ namespace BahiSync
             tools.Items.Add("Diagnose (count vouchers per month in Tally)", null, delegate { Engine.StartTool("Diagnose.ps1"); });
             tools.Items.Add("Save one voucher from Tally (for a problem report)", null, delegate { Engine.StartTool("Save-Voucher.ps1"); });
             tools.Items.Add("Save stock figures from Tally (for a problem report)", null, delegate { Engine.StartTool("Save-Stock.ps1"); });
+            tools.Items.Add(new ToolStripSeparator());
+            tools.Items.Add("Back up to Google Drive (sign in once)", null, delegate { ConnectCloud("drive", "Google Drive"); });
+            tools.Items.Add("Back up to OneDrive (sign in once)", null, delegate { ConnectCloud("onedrive", "OneDrive"); });
             tools.Items.Add(new ToolStripSeparator());
             tools.Items.Add("Send everything again (full sync, takes a while)", null, delegate { FullSync(); });
             tools.Items.Add(new ToolStripSeparator());
@@ -337,6 +340,36 @@ namespace BahiSync
             exiting = true;
             tray.Visible = false;
             Application.Exit();
+        }
+
+        // ------------------------------------------------------------ cloud backups (Google Drive / OneDrive)
+        /// <summary>Signs in to Google Drive or OneDrive with rclone (downloaded the first time) and hands the
+        /// sign-in to the Bahi server, which then copies every night's backup there.</summary>
+        void ConnectCloud(string kind, string service)
+        {
+            if (cfg == null || !Engine.Configured(cfg)) { OpenSettings(); return; }
+            if (MessageBox.Show(this, "Bahi will open your browser to sign in to " + service + ".\n\nAfter that, the Bahi server copies every night's backup to a \"Bahi Backups\" folder in your " + service + ".",
+                    "Back up to " + service, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;
+            string server = Engine.Get(cfg, "ServerUrl", "").TrimEnd('/'), token = Engine.Get(cfg, "SyncToken", "");
+            AddLine("(Bahi Sync) Connecting " + service + " for backups: getting the sign-in helper (rclone) ...");
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string msg;
+                try
+                {
+                    string exe = Engine.Rclone();
+                    BeginInvoke((MethodInvoker)delegate { AddLine("(Bahi Sync) Sign in to " + service + " in the browser window that opens ..."); });
+                    string text = Engine.RcloneAuthorize(exe, kind);
+                    msg = Engine.SendCloud(server, token, kind, text);
+                    msg = msg == null ? service + " connected. Tonight's backup (and one now) goes to the \"Bahi Backups\" folder there." : "The server didn't accept it: " + msg;
+                }
+                catch (Exception e) { msg = "Couldn't connect " + service + ": " + e.Message; }
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    AddLine("(Bahi Sync) " + msg);
+                    MessageBox.Show(this, msg, "Back up to " + service, MessageBoxButtons.OK, msg.Contains("connected.") ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                });
+            });
         }
 
         // ------------------------------------------------------------ new versions of this app

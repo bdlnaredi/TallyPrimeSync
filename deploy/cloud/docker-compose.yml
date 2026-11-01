@@ -1,0 +1,29 @@
+# TallyPrimeSync (Bahi) on a cloud server: the Bahi app behind Caddy, which gets the HTTPS certificate by itself.
+# install.sh writes the .env file next to this one; nothing here needs editing.
+services:
+  bahi:
+    image: ghcr.io/bdlnaredi/tallyprimesync:latest
+    container_name: bahi
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    expose:
+      - "8780"
+
+  caddy:
+    image: caddy:2
+    container_name: bahi-caddy
+    restart: unless-stopped
+    depends_on: [bahi]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config

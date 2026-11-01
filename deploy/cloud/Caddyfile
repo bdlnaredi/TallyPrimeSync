@@ -1,0 +1,9 @@
+# The address in .env (DOMAIN), with a free certificate from Let's Encrypt, renewed by Caddy.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy bahi:8780
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}
