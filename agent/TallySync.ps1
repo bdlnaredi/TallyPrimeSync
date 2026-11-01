@@ -4,7 +4,7 @@
 #         TallySync.ps1 -Force     always send everything
 #         TallySync.ps1 -Now       check Tally for changes right away (the Bahi Sync app's Sync now)
 param([switch]$Force, [switch]$Verbose, [switch]$Now)
-$AgentVersion = "3.13"
+$AgentVersion = "3.14"
 
 $ErrorActionPreference = "Stop"
 $Here    = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -187,6 +187,15 @@ function CompanyAll-Xml([string]$company) {
     return "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>TMCompanyAll</ID></HEADER>" +
            "<BODY><DESC><STATICVARIABLES>$sv</STATICVARIABLES><TDL><TDLMESSAGE>" +
            "<COLLECTION NAME=`"TMCompanyAll`" ISMODIFY=`"No`"><TYPE>Company</TYPE><NATIVEMETHOD>*</NATIVEMETHOD></COLLECTION>" +
+           "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+}
+
+# The company's GST registration(s): TallyPrime 3+ keeps the GSTIN there rather than on the company
+function TaxUnits-Xml([string]$company) {
+    $sv = Static-Vars $company $FromDate $ToDate
+    return "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>TMTaxUnits</ID></HEADER>" +
+           "<BODY><DESC><STATICVARIABLES>$sv</STATICVARIABLES><TDL><TDLMESSAGE>" +
+           "<COLLECTION NAME=`"TMTaxUnits`" ISMODIFY=`"No`"><TYPE>TaxUnit</TYPE><NATIVEMETHOD>*</NATIVEMETHOD></COLLECTION>" +
            "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
 }
 
@@ -644,6 +653,7 @@ foreach ($co in $companies) {
             $extras = @(
                 @("company",  { Collection-Xml "TMCompanyInfo" "Company" "Name, Address, StateName, PinCode, Email, PhoneNumber, IncomeTaxNumber, GSTRegistrationNumber, CountryName, Website" $co.Name }),
                 @("company_x", { CompanyAll-Xml $co.Name }),
+                @("company_tax", { TaxUnits-Xml $co.Name }),
                 @("ledger_x", { Masters-Xml "Ledgers" $co.Name }),
                 @("stock_x",  { Masters-Xml "Stock Items" $co.Name })
             )
@@ -815,6 +825,7 @@ foreach ($co in $companies) {
         elseif (-not $full) { $meta.months = @($sentMonths) }
         if ($short.Count -gt 0) { $meta.alt_vch = "" }      # not complete: the next run looks again
         $res = Server-Json "POST" "/agent/commit" $meta
+        if ($res.details) { Log ("Company details for invoices: " + $res.details) }
         if ($res.held) { Log ("The server kept its own copy of " + $res.held + " (vouchers it has were missing) - tried again at the next sync.") "Yellow" }
         $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
         Log ("Done: " + $res.ledgers + " ledgers, " + $res.stock + " stock items, " + $res.vouchers +

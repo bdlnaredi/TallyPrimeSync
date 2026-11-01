@@ -246,6 +246,10 @@ def get_alt(name):
         out["need_groups"] = bool(r and r["n"])
         # company details for printing missing (Tally refused them once): ask for the masters again, hourly at most
         r = c.execute("SELECT id, info FROM company WHERE name=?", (name,)).fetchone()
+        if r and not c.execute("SELECT 1 FROM meta WHERE key=?", (f"details_once:{r['id']}",)).fetchone():
+            # 3.6.7 reads company, GST registration and bank details more fully: once more for every company
+            c.execute("INSERT OR REPLACE INTO meta VALUES(?, '1')", (f"details_once:{r['id']}",))
+            out["need_groups"] = True
         if r and not json.loads(r["info"] or "{}").get("gstin") and not out["need_groups"]:
             key = f"info_ask:{r['id']}"
             last = c.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

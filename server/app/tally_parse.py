@@ -590,19 +590,50 @@ def _mailing(el):
             "mailing_name": _first(el, "MAILINGNAME.LIST/MAILINGNAME")}
 
 
+GSTIN_RE = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z][0-9A-Z]Z[0-9A-Z]\b")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
+
+
+def _leaves(el):
+    """(TAG, text) of every filled-in field inside el, at any depth."""
+    out = []
+    for x in el.iter():
+        t = (x.text or "").strip()
+        if len(x) == 0 and t and not t.startswith("\x04") and t.lower() not in ("yes", "no", "not applicable"):
+            out.append((x.tag.upper(), t))
+    return out
+
+
+def _like(leaves, *parts, exclude=()):
+    """The first field whose tag contains one of parts (and none of exclude)."""
+    for g, t in leaves:
+        if any(p in g for p in parts) and not any(x in g for x in exclude):
+            return t
+    return ""
+
+
 def parse_company_info(root):
     """{company name: details} for every company in the response."""
     out = {}
     for el in root.iter("COMPANY"):
         info = _mailing(el)
-        gst = txt(el, "GSTREGISTRATIONNUMBER") or _first(el, "GSTIN", "GSTREGNUMBER")
+        lv = _leaves(el)
+        # TallyPrime 3+ keeps the GSTIN with the company's GST registration rather than on the company itself
+        gst = txt(el, "GSTREGISTRATIONNUMBER") or _first(el, "GSTIN", "GSTREGNUMBER") or \
+            next((GSTIN_RE.search(t).group(0) for g, t in lv if "GST" in g and GSTIN_RE.search(t)), "")
         info.update({
             "name": name_of(el), "gstin": gst, "pan": txt(el, "INCOMETAXNUMBER"),
             "email": txt(el, "EMAIL"), "phone": txt(el, "PHONENUMBER") or txt(el, "MOBILENUMBERS"),
             "website": txt(el, "WEBSITE"),
         })
         if not info["state"]:
-            info["state"] = _first(el, "GSTREGISTRATIONDETAILS.LIST/STATE", "STATENAME")
+            info["state"] = _first(el, "GSTREGISTRATIONDETAILS.LIST/STATE", "STATENAME") or _like(lv, "STATENAME", "STATE", exclude=("STATEMENT", "STATUS", "ISSTATE"))
+        if not info["address"]:
+            info["address"] = [t for g, t in lv if g == "ADDRESS"][:5]
+        if not info["pincode"]:
+            info["pincode"] = _like(lv, "PINCODE")
+        if not info["email"]:
+            info["email"] = next((t for g, t in lv if "EMAIL" in g and EMAIL_RE.match(t)), "")
         if info["name"]:
             out[info["name"]] = {k: v for k, v in info.items() if v}
     return out
@@ -644,9 +675,28 @@ def parse_company_regs(root):
             else:
                 continue
             seen.add(t)
+        basics = parse_company_info(ET.fromstring(ET.tostring(el))).get(n, {})
+        basics.pop("name", None)
         if regs:
-            out[n] = {"regs": regs[:6]}
+            basics["regs"] = regs[:6]
+        if basics:
+            out[n] = basics
     return out
+
+
+def parse_tax_units(root):
+    """The company's GST registration as TallyPrime 3+ keeps it (a separate "Tax Unit" / GST Registration
+    master): GSTIN, state and address of the first registration that has a GSTIN."""
+    for el in list(root.iter("TAXUNIT")) + list(root.iter("GSTREGISTRATION")):
+        lv = _leaves(el)
+        m = next((GSTIN_RE.search(t) for g, t in lv if GSTIN_RE.search(t)), None)
+        if not m:
+            continue
+        info = _mailing(el)
+        out = {"gstin": m.group(0), "state": info.get("state") or _like(lv, "STATENAME", "STATE", exclude=("STATEMENT", "STATUS", "ISSTATE")),
+               "address": info.get("address") or [], "pincode": info.get("pincode") or _like(lv, "PINCODE")}
+        return {k: v for k, v in out.items() if v}
+    return {}
 
 
 def parse_ledger_extra(root):
@@ -660,9 +710,18 @@ def parse_ledger_extra(root):
             "pan": txt(el, "INCOMETAXNUMBER"),
             "gstin": txt(el, "PARTYGSTIN") or _first(el, "LEDGSTREGDETAILS.LIST/GSTIN"),
             "bank_account": txt(el, "BANKDETAILS") or txt(el, "BANKACCOUNTNUMBER"),
-            "ifsc": txt(el, "IFSCODE"), "branch": txt(el, "BANKBRANCHNAME"),
+            "ifsc": txt(el, "IFSCODE"), "branch": txt(el, "BANKBRANCHNAME") or txt(el, "BRANCHNAME"),
             "holder": txt(el, "BANKACCHOLDERNAME"),
         })
+        if info["bank_account"] or info["ifsc"]:
+            lv = _leaves(el)
+            if not info["branch"]:          # Tally releases name it differently
+                info["branch"] = _like(lv, "BRANCH", exclude=("ISBRANCH", "BRANCHID"))
+            if not info["ifsc"]:
+                info["ifsc"] = _like(lv, "IFSC")
+            if not info["bank_account"]:
+                info["bank_account"] = _like(lv, "ACCOUNTNUMBER", "ACCOUNTNO", "BANKACCNO")
+            info["bank_name"] = _like(lv, "BANKINGCONFIGBANK", "BANKNAME")
         out[n] = {k: v for k, v in info.items() if v}
     return out
 
