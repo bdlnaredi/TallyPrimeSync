@@ -566,6 +566,47 @@ def parse_company_info(root):
     return out
 
 
+UDYAM_RE = re.compile(r"UDYAM-[A-Z]{2}-\d{2}-\d{7}", re.I)
+
+
+def parse_company_regs(root):
+    """{company name: {"regs": [printed lines]}}: UDYAM (MSME), FSSAI and other licence numbers kept on the
+    company in Tally, found by their tag names and values since Tally releases name them differently."""
+    out = {}
+    for el in root.iter("COMPANY"):
+        n = name_of(el)
+        if not n:
+            continue
+        leaves = []
+        for x in el.iter():
+            t = (x.text or "").strip()
+            if len(x) == 0 and t and not t.startswith("\x04"):
+                leaves.append((x.tag.upper(), t))
+        regs, seen = [], set()
+        udyam = next((UDYAM_RE.search(t).group(0).upper() for _, t in leaves if UDYAM_RE.search(t)), "")
+        if udyam:
+            kind = next((t for g, t in leaves if "ENTERPRISETYPE" in g or g in ("MSMETYPE", "TYPEOFENTERPRISE")), "")
+            act = next((t for g, t in leaves if "ACTIVITYTYPE" in g or g in ("MSMEACTIVITY", "TYPEOFACTIVITY")), "")
+            extra = "/".join(x for x in (kind, act) if x and x.lower() not in ("yes", "no", "not applicable"))
+            regs.append(f"UDYAM : {udyam}" + (f" ({extra})" if extra else ""))
+            seen.add(udyam)
+        for g, t in leaves:
+            if t in seen or t.lower() in ("yes", "no", "not applicable", "0") or re.fullmatch(r"(19|20)\d{6}", t):
+                continue
+            if "FSSAI" in g:
+                regs.append(f"FSSAI No. : {t}")
+            elif "LICEN" in g and re.search(r"\d", t):
+                regs.append(f"Licence No. : {t}")
+            elif g in ("CORPORATEIDENTITYNO", "CINNUMBER", "CIN"):
+                regs.append(f"CIN : {t}")
+            else:
+                continue
+            seen.add(t)
+        if regs:
+            out[n] = {"regs": regs[:6]}
+    return out
+
+
 def parse_ledger_extra(root):
     out = {}
     for el in root.iter("LEDGER"):

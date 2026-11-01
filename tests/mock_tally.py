@@ -272,11 +272,11 @@ def xml_voucher(v):
             f'<PARTYLEDGERNAME>{escape(v["party"])}</PARTYLEDGERNAME>{flags}'
             f'<REFERENCE>{"PO-" + v["no"] if v["kind"] == "sales" else ""}</REFERENCE>'
             f'<PARTYGSTIN>{"27ABCDE1234F1Z5" if v["party"] == "Patel Enterprises" else ""}</PARTYGSTIN>'
-            + (f'<BASICBUYERNAME>{escape(v["party"])}</BASICBUYERNAME><STATENAME>Maharashtra</STATENAME><PLACEOFSUPPLY>Maharashtra</PLACEOFSUPPLY>'
+            + (f'<BASICBUYERNAME>{escape(COMPANY if v["kind"] == "purchase" else v["party"])}</BASICBUYERNAME><STATENAME>Maharashtra</STATENAME><PLACEOFSUPPLY>Maharashtra</PLACEOFSUPPLY>'
                f'<BASICBUYERADDRESS.LIST>{"".join(f"<BASICBUYERADDRESS>{escape(a)}</BASICBUYERADDRESS>" for a in ADDR.get(v["party"], []))}</BASICBUYERADDRESS.LIST>'
                f'<BASICDUEDATEOFPYMT>30 Days</BASICDUEDATEOFPYMT><BASICSHIPDOCUMENTNO>LR-{v["no"][2:]}</BASICSHIPDOCUMENTNO>'
                f'<BASICSHIPPEDBY>VRL Logistics</BASICSHIPPEDBY><BASICFINALDESTINATION>{escape((ADDR.get(v["party"]) or ["Nagpur"])[-1].split(" ")[0])}</BASICFINALDESTINATION>'
-               if v["kind"] == "sales" else ""))
+               if v["kind"] in ("sales", "purchase") else ""))
     body = ""
     def ba(ln):
         if ln != v["party"]:
@@ -576,7 +576,10 @@ class H(BaseHTTPRequestHandler):
                         f'<ADDRESS.LIST><ADDRESS>Plot 21, Wardhaman Nagar</ADDRESS><ADDRESS>Central Avenue, Nagpur 440008</ADDRESS></ADDRESS.LIST>'
                         f'<STATENAME>Maharashtra</STATENAME><EMAIL>accounts@demotraders.in</EMAIL><INCOMETAXNUMBER>AABCD1234E</INCOMETAXNUMBER>'
                         f'<GSTREGISTRATIONNUMBER>27AABCD1234E1Z9</GSTREGISTRATIONNUMBER>'
-                        f'<ALTVCHID TYPE="Number"> {431 if os.environ.get("STUCK_ALTVCH") == "1" else max(v["alterid"] for v in VOUCHERS) + EDITS[0]}</ALTVCHID><ALTMSTID TYPE="Number"> 87</ALTMSTID><BOOKSFROM TYPE="Date">20240401</BOOKSFROM></COMPANY>')
+                        f'<ALTVCHID TYPE="Number"> {431 if os.environ.get("STUCK_ALTVCH") == "1" else max(v["alterid"] for v in VOUCHERS) + EDITS[0]}</ALTVCHID><ALTMSTID TYPE="Number"> 87</ALTMSTID><BOOKSFROM TYPE="Date">20240401</BOOKSFROM>'
+                        + ('<MSMEDETAILS.LIST><UDYAMREGNUMBER>UDYAM-MH-20-0012345</UDYAMREGNUMBER><MSMEENTERPRISETYPE>Micro</MSMEENTERPRISETYPE>'
+                           '<MSMEACTIVITYTYPE>Traders</MSMEACTIVITYTYPE></MSMEDETAILS.LIST><FSSAINUMBER>11519999000123</FSSAINUMBER>' if "NATIVEMETHOD" in req else "")
+                        + '</COMPANY>')
                 if os.environ.get("SECOND_CO"):     # a second company open in Tally (same books, for testing)
                     out += (f'<COMPANY NAME="{escape(os.environ["SECOND_CO"])}"><NAME>{escape(os.environ["SECOND_CO"])}</NAME>'
                             f'<ALTVCHID TYPE="Number"> 431</ALTVCHID><ALTMSTID TYPE="Number"> 87</ALTMSTID><BOOKSFROM TYPE="Date">20250401</BOOKSFROM></COMPANY>')

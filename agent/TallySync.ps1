@@ -4,7 +4,7 @@
 #         TallySync.ps1 -Force     always send everything
 #         TallySync.ps1 -Now       check Tally for changes right away (the Bahi Sync app's Sync now)
 param([switch]$Force, [switch]$Verbose, [switch]$Now)
-$AgentVersion = "3.11"
+$AgentVersion = "3.12"
 
 $ErrorActionPreference = "Stop"
 $Here    = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -179,6 +179,15 @@ function Report-Xml([string]$report, [string]$company, [datetime]$from, [datetim
     $sv = Static-Vars $company $from $to
     return "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>$report</ID></HEADER>" +
            "<BODY><DESC><STATICVARIABLES>$sv</STATICVARIABLES></DESC></BODY></ENVELOPE>"
+}
+
+# Everything Tally keeps on the company (registrations such as UDYAM, FSSAI or licences), for printing
+function CompanyAll-Xml([string]$company) {
+    $sv = Static-Vars $company $FromDate $ToDate
+    return "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>TMCompanyAll</ID></HEADER>" +
+           "<BODY><DESC><STATICVARIABLES>$sv</STATICVARIABLES><TDL><TDLMESSAGE>" +
+           "<COLLECTION NAME=`"TMCompanyAll`" ISMODIFY=`"No`"><TYPE>Company</TYPE><NATIVEMETHOD>*</NATIVEMETHOD></COLLECTION>" +
+           "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
 }
 
 function Masters-Xml([string]$accountType, [string]$company) {
@@ -615,6 +624,7 @@ foreach ($co in $companies) {
             # Details used for printing invoices and statements (optional - skipped if Tally refuses)
             $extras = @(
                 @("company",  { Collection-Xml "TMCompanyInfo" "Company" "Name, Address, StateName, PinCode, Email, PhoneNumber, IncomeTaxNumber, GSTRegistrationNumber, CountryName, Website" $co.Name }),
+                @("company_x", { CompanyAll-Xml $co.Name }),
                 @("ledger_x", { Masters-Xml "Ledgers" $co.Name }),
                 @("stock_x",  { Masters-Xml "Stock Items" $co.Name })
             )

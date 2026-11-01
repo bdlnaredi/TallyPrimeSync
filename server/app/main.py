@@ -41,7 +41,7 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 SYNC_TOKEN = os.environ.get("SYNC_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8780"))
 SESSION_DAYS = 30
-APP_VERSION = "3.6.1"
+APP_VERSION = "3.6.2"
 MAX_PART = 200 * 1024 * 1024
 RUN_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 
@@ -366,7 +366,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/agent/part" and method == "POST":
             run, kind = q.get("run", ""), q.get("kind", "")
             if not RUN_RE.match(run) or kind not in ("groups", "vtypes", "ledgers", "stock", "daybook", "bills_rec", "bills_pay",
-                                                             "company", "ledger_x", "stock_x", "stockat", "einv", "stock_godown", "ledgerat"):
+                                                             "company", "company_x", "ledger_x", "stock_x", "stockat", "einv", "stock_godown", "ledgerat"):
                 return self.send_json({"error": "bad part"}, 400)
             if kind in ("stockat", "ledgerat"):
                 day = q.get("date", "")
@@ -399,10 +399,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def commit(self, d, meta):
         parts = {"groups": [], "vtypes": [], "ledgers": [], "stock": [], "daybook": [],
-                 "bills_rec": None, "bills_pay": None, "company": {}, "ledger_x": {}, "stock_x": {}, "stock_at": {}, "ledger_at": {}, "einv": {},
+                 "bills_rec": None, "bills_pay": None, "company": {}, "company_x": {}, "ledger_x": {}, "stock_x": {}, "stock_at": {}, "ledger_at": {}, "einv": {},
                  "stock_godown": None}
         skipped = []
-        extra_fns = {"company": tp.parse_company_info, "ledger_x": tp.parse_ledger_extra, "stock_x": tp.parse_stock_extra}
+        extra_fns = {"company": tp.parse_company_info, "company_x": tp.parse_company_regs, "ledger_x": tp.parse_ledger_extra, "stock_x": tp.parse_stock_extra}
         fns = {"groups": tp.parse_groups, "vtypes": tp.parse_vtypes, "ledgers": tp.parse_ledgers,
                "stock": tp.parse_stock, "daybook": tp.parse_vouchers}
         for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -460,6 +460,9 @@ class Handler(BaseHTTPRequestHandler):
                 print("voucher part skipped:", e, file=sys.stderr)
         if not parts["ledgers"]:
             raise ValueError("No ledgers received - is the right company open in Tally?")
+        for name, x in parts["company_x"].items():      # registrations (UDYAM, FSSAI, licences) read separately
+            if name in parts["company"]:
+                parts["company"][name].update(x)
         seen, vouchers = set(), []
         for v in parts["daybook"]:
             if v.get("guid") in parts["einv"]:
@@ -485,7 +488,7 @@ class Handler(BaseHTTPRequestHandler):
         res = store.ingest(meta["company"], meta["from"], meta["to"], meta.get("alt_vch", ""),
                             meta.get("alt_mst", ""), parts["groups"], parts["vtypes"],
                             parts["ledgers"], parts["stock"], vouchers, parts["bills_rec"], parts["bills_pay"],
-                            parts["company"].get(meta["company"]) or next(iter(parts["company"].values()), {}),
+                            parts["company"].get(meta["company"]) or {},
                             parts["ledger_x"], parts["stock_x"],
                             months,
                             [str(g) for g in meta["guids"]] if isinstance(meta.get("guids"), list) else None,

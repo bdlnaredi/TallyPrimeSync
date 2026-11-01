@@ -333,6 +333,14 @@ def _state_line(state, gstin):
     return f"State Name : {state}" if state else ""
 
 
+def _with_pin(addr, pin):
+    """Address lines with "Pin: ..." added when Tally keeps the pincode apart and the address doesn't show it."""
+    addr = list(addr or [])
+    if pin and not any(pin in a for a in addr):
+        addr.append(f"Pin: {pin}")
+    return addr
+
+
 def _party_lines(name, addr, gstin, state, extra=()):
     lines = [(name, "B")] + [(a, "R") for a in addr]
     if gstin:
@@ -386,19 +394,28 @@ def invoice_pdf(d):
     # left column: seller, consignee, buyer
     mid = L + (R - L) * 0.52
     lw = mid - L - 8
-    seller = _party_lines(d["company"], C.get("address", []), C.get("gstin", ""), C.get("state", ""),
+    # like Tally: the company's address, its registrations (UDYAM, FSSAI, licences), GSTIN, state, e-mail
+    seller = _party_lines(C.get("mailing_name") or d["company"], _with_pin(C.get("address", []), C.get("pincode", "")) + list(C.get("regs", [])),
+                          C.get("gstin", ""), C.get("state", ""),
                           [f"E-Mail : {C['email']}" if C.get("email") else "",
                            f"Contact : {C['phone']}" if C.get("phone") else ""])
-    pname = X.get("buyer_name") or P.get("mailing_name") or V.get("party") or ""
-    paddr = X.get("buyer_address") or P.get("address", [])
-    pgst = X.get("buyer_gstin") or V.get("party_gstin") or P.get("gstin", "")
-    pstate = X.get("buyer_state") or P.get("state", "")
+    if base == "Purchase":
+        # in a purchase, Tally's "buyer" details on the voucher are this company; the supplier is the party ledger
+        pname = P.get("mailing_name") or V.get("party") or ""
+        paddr = _with_pin(P.get("address", []), P.get("pincode", ""))
+        pgst = V.get("party_gstin") or P.get("gstin", "")
+        pstate = P.get("state", "") or X.get("place_of_supply", "")
+    else:
+        pname = X.get("buyer_name") or P.get("mailing_name") or V.get("party") or ""
+        paddr = X.get("buyer_address") or _with_pin(P.get("address", []), P.get("pincode", ""))
+        pgst = X.get("buyer_gstin") or V.get("party_gstin") or P.get("gstin", "")
+        pstate = X.get("buyer_state") or P.get("state", "")
     buyer = _party_lines(pname, paddr, pgst, pstate,
                          [f"Place of Supply : {X['place_of_supply']}" if X.get("place_of_supply") else ""])
     cname = X.get("consignee_name") or pname
     consignee = _party_lines(cname, X.get("consignee_address") or paddr, X.get("consignee_gstin") or pgst,
                              X.get("consignee_state") or pstate)
-    who = ("Supplier (Bill from)", "Buyer (Bill to)") if base == "Purchase" else ("Consignee (Ship to)", "Buyer (Bill to)")
+    who = ("", "Supplier (Bill from)") if base == "Purchase" else ("Consignee (Ship to)", "Buyer (Bill to)")
 
     def block_h(lines, label):
         return (10 if label else 0) + sum(10.5 for _ in lines) + 8
@@ -859,7 +876,7 @@ def _eway_page(p, d, X, pname, pgst, pstate, ship_addr):
 def _company_header(p, d, y):
     C = d.get("company_info") or {}
     p.text(PDF.W / 2, y, d["company"], 12, "B", "center")
-    for a in C.get("address", [])[:4]:
+    for a in _with_pin(C.get("address", [])[:4], C.get("pincode", "")) + list(C.get("regs", [])):
         y -= 10
         p.text(PDF.W / 2, y, a, 8, "R", "center")
     extra = [x for x in (C.get("state") and f"State Name : {C['state']}" + (f", Code : {C['gstin'][:2]}" if C.get("gstin") else ""),

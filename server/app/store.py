@@ -241,6 +241,14 @@ def get_alt(name):
         r = c.execute("""SELECT COUNT(*) n FROM grp g JOIN company co ON co.id=g.company_id
                          WHERE co.name=? AND g.parent='' AND g.revenue IS NULL""", (name,)).fetchone()
         out["need_groups"] = bool(r and r["n"])
+        # company details for printing missing (Tally refused them once): ask for the masters again, hourly at most
+        r = c.execute("SELECT id, info FROM company WHERE name=?", (name,)).fetchone()
+        if r and not json.loads(r["info"] or "{}").get("gstin") and not out["need_groups"]:
+            key = f"info_ask:{r['id']}"
+            last = c.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+            if not last or time.time() - float(last["value"]) > 3600:
+                c.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (key, str(time.time())))
+                out["need_groups"] = True
         r = c.execute("""SELECT (SELECT COUNT(*) FROM stock s WHERE s.company_id=co.id) items,
                                 (SELECT COUNT(*) FROM stock_at a WHERE a.company_id=co.id) snaps FROM company co WHERE co.name=?""",
                       (name,)).fetchone()
@@ -559,10 +567,10 @@ def ingest(company, d_from, d_to, alt_vch, alt_mst, groups, vtypes, ledgers, sto
             c.executemany("INSERT OR REPLACE INTO vtype VALUES(?,?,?)", [(cid, n, b) for n, b in bases.items()])
         else:
             bases = {r["name"]: r["base"] for r in c.execute("SELECT name, base FROM vtype WHERE company_id=?", (cid,))}
-        if not ledger_x and partial:
+        if not ledger_x:          # not sent (or Tally refused): keep the details already stored
             ledger_x = {r["name"]: json.loads(r["extra"] or "{}") for r in
                         c.execute("SELECT name, extra FROM ledger WHERE company_id=?", (cid,))}
-        if not stock_x and partial:
+        if not stock_x:
             stock_x = {r["name"]: {"hsn": r["hsn"], "gst": r["gst"]} for r in c.execute("SELECT name, hsn, gst FROM stock WHERE company_id=?", (cid,))}
         ledger_x = ledger_x or {}
         stock_x = stock_x or {}
@@ -651,8 +659,8 @@ def ingest(company, d_from, d_to, alt_vch, alt_mst, groups, vtypes, ledgers, sto
                                   [(cid, kind, b["party"], b["ref"], b["date"], b["due"], round(b["amount"], 2))
                                    for b in rows])
             c.execute("UPDATE company SET bills_source=? WHERE id=?", (source, cid))
-        if info or not partial:
-            c.execute("UPDATE company SET info=? WHERE id=?", (json.dumps(info or {}), cid))
+        if info:                  # a sync without company details keeps the ones already stored
+            c.execute("UPDATE company SET info=? WHERE id=?", (json.dumps(info), cid))
         if stock_godown is not None:
             c.execute("DELETE FROM stock_godown_open WHERE company_id=?", (cid,))
             c.executemany("INSERT INTO stock_godown_open VALUES(?,?,?,?)",
