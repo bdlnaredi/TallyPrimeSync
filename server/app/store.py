@@ -40,13 +40,13 @@ CREATE TABLE IF NOT EXISTS vline(voucher_id INT, ledger TEXT, amount REAL);
 CREATE INDEX IF NOT EXISTS ix_vl_l ON vline(ledger, voucher_id);
 CREATE INDEX IF NOT EXISTS ix_vl_v ON vline(voucher_id);
 CREATE TABLE IF NOT EXISTS vitem(voucher_id INT, item TEXT, qty REAL, unit TEXT, rate REAL, amount REAL,
-  hsn TEXT DEFAULT '', disc REAL DEFAULT 0, descr TEXT DEFAULT '', tracked INT DEFAULT 0);
+  hsn TEXT DEFAULT '', disc REAL DEFAULT 0, descr TEXT DEFAULT '', tracked INT DEFAULT 0, gst REAL);
 CREATE INDEX IF NOT EXISTS ix_vi_i ON vitem(item, voucher_id);
 CREATE INDEX IF NOT EXISTS ix_vi_v ON vitem(voucher_id);
 CREATE TABLE IF NOT EXISTS vline_np(voucher_id INT, ledger TEXT, amount REAL);
 CREATE INDEX IF NOT EXISTS ix_vlnp_v ON vline_np(voucher_id);
 CREATE TABLE IF NOT EXISTS vitem_np(voucher_id INT, item TEXT, qty REAL, unit TEXT, rate REAL, amount REAL,
-  hsn TEXT DEFAULT '', disc REAL DEFAULT 0, descr TEXT DEFAULT '', tracked INT DEFAULT 0);
+  hsn TEXT DEFAULT '', disc REAL DEFAULT 0, descr TEXT DEFAULT '', tracked INT DEFAULT 0, gst REAL);
 CREATE INDEX IF NOT EXISTS ix_vinp_v ON vitem_np(voucher_id);
 CREATE TABLE IF NOT EXISTS vbill(voucher_id INT, ledger TEXT, name TEXT, btype TEXT, amount REAL, days INT);
 CREATE INDEX IF NOT EXISTS ix_vb_v ON vbill(voucher_id);
@@ -156,6 +156,9 @@ def _migrate(c):
             c.execute(f"DELETE FROM vbill WHERE voucher_id IN ({q})", part)
             c.execute(f"UPDATE voucher SET posting=0, balanced=1 WHERE id IN ({q})", part)
         c.execute("INSERT OR REPLACE INTO meta VALUES('stock_only_notes', '1')")
+    for t in ("vitem", "vitem_np"):          # the GST rate Tally applied to each stock line (3.6.6)
+        if "gst" not in [r[1] for r in c.execute(f"PRAGMA table_info({t})")]:
+            c.execute(f"ALTER TABLE {t} ADD COLUMN gst REAL")
     cols = [r[1] for r in c.execute("PRAGMA table_info(company)")]
     if "keep_from" not in cols:
         c.execute("ALTER TABLE company ADD COLUMN keep_from TEXT DEFAULT ''")
@@ -257,6 +260,17 @@ def get_alt(name):
                                 (SELECT COUNT(*) FROM ledger_at a WHERE a.company_id=co.id) snaps FROM company co WHERE co.name=?""",
                       (name,)).fetchone()
         out["need_ledgers"] = bool(r and r["vch"] and not r["snaps"])   # synced before the ledger check existed
+        # the GST rate of each stock line (3.6.6): read once for all months; asked again at most daily if none came
+        r = c.execute("""SELECT co.id, (SELECT COUNT(*) FROM vitem i JOIN voucher v ON v.id=i.voucher_id WHERE v.company_id=co.id) n,
+                (SELECT COUNT(*) FROM vitem i JOIN voucher v ON v.id=i.voucher_id WHERE v.company_id=co.id AND i.gst IS NOT NULL) g
+                FROM company co WHERE co.name=?""", (name,)).fetchone()
+        out["need_gst"] = False
+        if r and r["n"] and not r["g"]:
+            key = f"gst_ask:{r['id']}"
+            last = c.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+            if not last or time.time() - float(last["value"]) > 86400:
+                c.execute("INSERT OR REPLACE INTO meta VALUES(?,?)", (key, str(time.time())))
+                out["need_gst"] = True
     return out
 
 
@@ -517,6 +531,35 @@ def plan(company, d_from, d_to, tally_list):
             "changed": changed if by_voucher else [], "deleted": deleted if by_voucher else []}
 
 
+def merge_gst(company, rates):
+    """The GST rate (and HSN) Tally used on each stock line, added to the stored lines of those vouchers,
+    matched by item and amount. Only these two details change."""
+    if not rates:
+        return 0
+    n = 0
+    with _lock, conn() as c:
+        r = c.execute("SELECT id FROM company WHERE name=?", (company,)).fetchone()
+        if not r:
+            return 0
+        for g, lines in rates.items():
+            v = c.execute("SELECT id FROM voucher WHERE company_id=? AND guid=?", (r["id"], g)).fetchone()
+            if not v:
+                continue
+            for t in ("vitem", "vitem_np"):
+                rows = [dict(x) for x in c.execute(f"SELECT rowid, item, amount, hsn FROM {t} WHERE voucher_id=?", (v["id"],))]
+                used = set()
+                for ln in lines:
+                    m = next((x for x in rows if x["rowid"] not in used and x["item"] == ln["item"]
+                              and abs(abs(x["amount"]) - ln["amount"]) < 0.02), None)
+                    if not m:
+                        continue
+                    used.add(m["rowid"])
+                    c.execute(f"UPDATE {t} SET gst=?, hsn=CASE WHEN ?<>'' THEN ? ELSE hsn END WHERE rowid=?",
+                              (ln["gst"], ln["hsn"], ln["hsn"], m["rowid"]))
+                    n += 1
+    return n
+
+
 def merge_einv(company, einv):
     """e-invoice / e-way bill details of vouchers already stored (an e-way bill made after the invoice was
     synced, or a month kept as it was). Only adds to the voucher's printing details; nothing else changes."""
@@ -635,10 +678,10 @@ def ingest(company, d_from, d_to, alt_vch, alt_mst, groups, vtypes, ledgers, sto
                 agg[ln] = agg.get(ln, 0) + a
             c.executemany(f"INSERT INTO {'vline' if posting else 'vline_np'} VALUES(?,?,?)",
                           [(vid, ln, round(a, 2)) for ln, a in agg.items()])
-            c.executemany(f"INSERT INTO {'vitem_np' if (base in NO_STOCK or status) else 'vitem'} VALUES(?,?,?,?,?,?,?,?,?,?)",
+            c.executemany(f"INSERT INTO {'vitem_np' if (base in NO_STOCK or status) else 'vitem'} VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                           [(vid, i["item"], i["qty"], i["unit"], i["rate"], i["amount"],
                             i.get("hsn") or stock_x.get(i["item"], {}).get("hsn", ""), i.get("disc", 0), i.get("descr", ""),
-                            1 if i.get("tracked") else 0)
+                            1 if i.get("tracked") else 0, i.get("gst"))
                            for i in v["items"]])
             if not (base in NO_STOCK or status):
                 c.executemany("INSERT INTO vgodown VALUES(?,?,?,?)",
@@ -1320,46 +1363,6 @@ def _is_tax(l):
         or bool(_re.search(r"GST|CESS", l["name"] or "", _re.I)))
 
 
-_HSN_CACHE = {}
-
-
-def hsn_rates(cid):
-    """{hsn: GST rate} as this company's own invoices show it: from invoices with a single HSN (or a single
-    rate), where the rate is plain from the tax; plus the GST rate set on stock items in Tally. Used to tell
-    the slabs apart on an invoice with items at different rates. Worked out once per sync."""
-    with conn() as c:
-        r = c.execute("SELECT last_sync FROM company WHERE id=?", (cid,)).fetchone()
-        stamp = r["last_sync"] if r else None
-        hit = _HSN_CACHE.get(cid)
-        if hit and hit[0] == stamp:
-            return hit[1]
-        from .pdf import gst_summary_plain     # the same rules as the printed summary
-        items, taxes = {}, {}
-        for x in c.execute("""SELECT i.voucher_id vid, i.hsn, SUM(i.amount) amt FROM vitem i JOIN voucher v ON v.id=i.voucher_id
-                WHERE v.company_id=? AND v.base IN ('Sales','Purchase','Credit Note','Debit Note') AND i.hsn<>''
-                GROUP BY i.voucher_id, i.hsn""", (cid,)):
-            items.setdefault(x["vid"], []).append({"hsn": x["hsn"], "amount": abs(x["amt"])})
-        for x in c.execute("""SELECT vl.voucher_id vid, vl.ledger, vl.amount, l.chain, l.taxtype, l.gst_head, l.name
-                FROM vline vl JOIN voucher v ON v.id=vl.voucher_id LEFT JOIN ledger l ON l.company_id=v.company_id AND l.name=vl.ledger
-                WHERE v.company_id=? AND v.base IN ('Sales','Purchase','Credit Note','Debit Note')""", (cid,)):
-            if x["vid"] in items and _is_tax(x):
-                taxes.setdefault(x["vid"], []).append({"ledger": x["ledger"], "amount": x["amount"]})
-        votes = {}
-        for vid, its in items.items():
-            for hsn, rate in gst_summary_plain(its, taxes.get(vid, [])).items():
-                votes.setdefault(hsn, {}).setdefault(rate, 0)
-                votes[hsn][rate] += 1
-        out = {}
-        for hsn, vs in votes.items():
-            rate, n = max(vs.items(), key=lambda kv: kv[1])
-            if n >= 0.7 * sum(vs.values()):
-                out[hsn] = rate
-        for x in c.execute("SELECT hsn, gst FROM stock WHERE company_id=? AND hsn<>'' AND gst IS NOT NULL", (cid,)):
-            out.setdefault(x["hsn"], float(x["gst"]))
-    _HSN_CACHE[cid] = (stamp, out)
-    return out
-
-
 def voucher(cid, vid):
     with conn() as c:
         v = c.execute("SELECT * FROM voucher WHERE company_id=? AND id=?", (cid, vid)).fetchone()
@@ -1394,17 +1397,12 @@ def voucher(cid, vid):
             pinfo = {k: party[k] for k in ("name", "gstin", "mobile", "phone", "email")}
             pinfo.update(json.loads(party["extra"] or "{}"))
             pinfo["gstin"] = party["gstin"] or pinfo.get("gstin", "")
-        try:
-            known = hsn_rates(cid)
-        except Exception as e:            # a help for printing only
-            print("hsn rates not worked out:", e, file=sys.stderr)
-            known = {}
-        return {"company": crow["name"], "company_info": json.loads(crow["info"] or "{}"), "bank": bank, "hsn_rates": known,
+        return {"company": crow["name"], "company_info": json.loads(crow["info"] or "{}"), "bank": bank,
                 "voucher": v, "lines": lines,
-                "items": _rows(c, """SELECT item, qty, unit, rate, amount, hsn, disc, descr,
-                        (SELECT s.gst FROM stock s WHERE s.company_id=? AND s.name=x.item) gst FROM vitem x WHERE voucher_id=?
-                    UNION ALL SELECT item, qty, unit, rate, amount, hsn, disc, descr,
-                        (SELECT s.gst FROM stock s WHERE s.company_id=? AND s.name=x.item) gst FROM vitem_np x WHERE voucher_id=?""",
+                "items": _rows(c, """SELECT item, qty, unit, rate, amount, hsn, disc, descr, gst,
+                        (SELECT s.gst FROM stock s WHERE s.company_id=? AND s.name=x.item) gst_master FROM vitem x WHERE voucher_id=?
+                    UNION ALL SELECT item, qty, unit, rate, amount, hsn, disc, descr, gst,
+                        (SELECT s.gst FROM stock s WHERE s.company_id=? AND s.name=x.item) gst_master FROM vitem_np x WHERE voucher_id=?""",
                                (cid, vid, cid, vid)),
                 "bills": [dict(b, vid=(c.execute("""SELECT v.id FROM vbill x JOIN voucher v ON v.id=x.voucher_id
                     WHERE v.company_id=? AND x.ledger=? AND x.name=? AND x.btype='New Ref' AND v.id<>? LIMIT 1""",

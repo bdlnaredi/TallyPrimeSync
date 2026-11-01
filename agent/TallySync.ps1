@@ -4,7 +4,7 @@
 #         TallySync.ps1 -Force     always send everything
 #         TallySync.ps1 -Now       check Tally for changes right away (the Bahi Sync app's Sync now)
 param([switch]$Force, [switch]$Verbose, [switch]$Now)
-$AgentVersion = "3.12"
+$AgentVersion = "3.13"
 
 $ErrorActionPreference = "Stop"
 $Here    = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -244,6 +244,25 @@ function Einv-Xml([string]$company, [datetime]$from, [datetime]$to, [string[]]$g
 function Send-Einv($run, [string]$company, [datetime]$from, [datetime]$to, [string[]]$guids) {
     try { Send-Part $run "einv" (Tally-Raw (Einv-Xml $company $from $to $guids)) }
     catch { if ($Verbose) { Log ("e-invoice details not read: " + $_.Exception.Message) "Gray" } }
+}
+
+# The GST rate and HSN Tally used on each stock line (for the invoice's HSN-wise tax summary). Separate and
+# optional, so a Tally that doesn't know these names can't stop the sync.
+$GstFields = "GUID, AllInventoryEntries.StockItemName, AllInventoryEntries.Amount, AllInventoryEntries.GSTHSNName, " +
+             "AllInventoryEntries.RateDetails.GSTRateDutyHead, AllInventoryEntries.RateDetails.GSTRate"
+function Gst-Xml([string]$company, [datetime]$from, [datetime]$to, [string[]]$guids) {
+    $sv = Static-Vars $company $from $to
+    $cond = "`$Date &gt;= ##SVFromDate AND `$Date &lt;= ##SVToDate"
+    if ($guids) { $cond = ($guids | ForEach-Object { "`$GUID = `"" + ($_ -replace '[^A-Za-z0-9\-]', '') + "`"" }) -join " OR " }
+    return "<ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Collection</TYPE><ID>TMGstRate</ID></HEADER>" +
+           "<BODY><DESC><STATICVARIABLES>$sv</STATICVARIABLES><TDL><TDLMESSAGE>" +
+           "<COLLECTION NAME=`"TMGstRate`" ISMODIFY=`"No`"><TYPE>Voucher</TYPE><FETCH>$GstFields</FETCH><FILTER>TMGstRateF</FILTER></COLLECTION>" +
+           "<SYSTEM TYPE=`"Formulae`" NAME=`"TMGstRateF`">$cond</SYSTEM>" +
+           "</TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>"
+}
+function Send-Gst($run, [string]$company, [datetime]$from, [datetime]$to, [string[]]$guids) {
+    try { Send-Part $run "gstrate" (Tally-Raw (Gst-Xml $company $from $to $guids)) }
+    catch { if ($Verbose) { Log ("GST rates not read: " + $_.Exception.Message) "Gray" } }
 }
 
 # Every stock item's (or ledger's) balance as Tally has it at the end of one day. The period starts at the
@@ -531,7 +550,7 @@ foreach ($co in $companies) {
         $fromIso = $FromDate.ToString("yyyy-MM-dd"); $toIso = $ToDate.ToString("yyyy-MM-dd")
         # Tally's company change counter says whether anything changed. "Sync now" doesn't trust it alone:
         # it always compares voucher by voucher, so entries are found even if the counter didn't move.
-        $unchanged = ($madeEntries -eq 0) -and (-not $script:Asked) -and (-not $state.need_groups) -and (-not $state.need_stock) -and $co.AltVch -and $co.AltMst -and ($state.alt_vch -eq $co.AltVch) -and
+        $unchanged = ($madeEntries -eq 0) -and (-not $script:Asked) -and (-not $state.need_groups) -and (-not $state.need_gst) -and (-not $state.need_stock) -and $co.AltVch -and $co.AltMst -and ($state.alt_vch -eq $co.AltVch) -and
                      ($state.alt_mst -eq $co.AltMst) -and ($state.from_date -eq $fromIso)
         # Some Tally setups don't move that counter for every entry, so even when it says "unchanged"
         # the vouchers are compared one by one every 30 minutes.
@@ -669,6 +688,7 @@ foreach ($co in $companies) {
                 foreach ($p in $parts) { Send-Part $run "daybook" $p }
                 for ($i = 0; $i -lt $changed.Count; $i += 25) {
                     Send-Einv $run $co.Name $FromDate $ToDate @($changed[$i..([math]::Min($i + 24, $changed.Count - 1))])
+                    Send-Gst $run $co.Name $FromDate $ToDate @($changed[$i..([math]::Min($i + 24, $changed.Count - 1))])
                 }
                 Log ("Vouchers checked: all " + $changed.Count + " changed voucher(s) received")
                 $sentByVch = $true
@@ -727,7 +747,7 @@ foreach ($co in $companies) {
                 }
             }
             # only a complete month is sent: a short or failed month keeps what the server already has
-            if ($best -and $bestGood) { Send-Part $run "daybook" $best; $sentTotal += [math]::Max(0, $bestIn); Send-Einv $run $co.Name $a $b $null; $sentMonths += $key }
+            if ($best -and $bestGood) { Send-Part $run "daybook" $best; $sentTotal += [math]::Max(0, $bestIn); Send-Einv $run $co.Name $a $b $null; Send-Gst $run $co.Name $a $b $null; $sentMonths += $key }
             else { $short += ("{0}: {1} of {2}{3}" -f $key, [math]::Max(0, $bestIn), $want, $(if ($why) { " (" + $why + ")" } else { "" })) }
         }
         if ($method -ne $script:VchMethod) { try { Set-Content $MethodFile $method } catch {} }
@@ -744,6 +764,17 @@ foreach ($co in $companies) {
         # so the last 15 days' details are read every time (only those fields; the server adds them to its copy)
         $eFrom = $today.Date.AddDays(-15); if ($eFrom -lt $FromDate) { $eFrom = $FromDate }
         if ($eFrom -le $ToDate) { Send-Einv $run $co.Name $eFrom $ToDate $null }
+        # the GST rate of every stock line, once for all months (asked for by the server when it has none yet)
+        if ($state.need_gst -and -not $full) {
+            $m = Get-Date -Year $FromDate.Year -Month $FromDate.Month -Day 1
+            while ($m -le $ToDate) {
+                $a = if ($m -lt $FromDate) { $FromDate } else { $m }
+                $b = $m.AddMonths(1).AddDays(-1); if ($b -gt $ToDate) { $b = $ToDate }
+                if ($sentMonths -notcontains $m.ToString("yyyy-MM")) { Send-Gst $run $co.Name $a $b $null }
+                $m = $m.AddMonths(1)
+            }
+            Log "GST rates of the stock lines read from Tally for every month"
+        }
 
         # 5. Stock as Tally has it at each month-end, so opening stock for any month or year is Tally's own figure.
         #    All months on a full sync; otherwise only from the month of the earliest change.

@@ -258,6 +258,10 @@ def amt(x):  # Tally writes debits negative
     return f"{-x:.2f}"
 
 
+GST_RATES = {}        # item: (HSN, GST rate) as Tally keeps it on each stock line (all 18% unless listed)
+WANT_RATES = [False]  # the request asks for the GST rate details (only then are they sent, as in Tally)
+
+
 def xml_voucher(v):
     dt = v["date"].strftime("%Y%m%d")
     flags = ("<ISCANCELLED>Yes</ISCANCELLED>" if v.get("cancelled") else "<ISCANCELLED>No</ISCANCELLED>") + \
@@ -310,6 +314,11 @@ def xml_voucher(v):
                      f"<ACTUALQTY> {q} {unit}</ACTUALQTY><BILLEDQTY> {q} {unit}</BILLEDQTY>"
                      + f"<BATCHALLOCATIONS.LIST><GODOWNNAME>Main Location</GODOWNNAME><ACTUALQTY> {q} {unit}</ACTUALQTY><TRACKINGNUMBER>{v.get('tracked') or '&#4; Not Applicable'}</TRACKINGNUMBER></BATCHALLOCATIONS.LIST>"
                      + ("<BASICUSERDESCRIPTION.LIST><BASICUSERDESCRIPTION>Asian Paints Apex, colour: Ivory</BASICUSERDESCRIPTION></BASICUSERDESCRIPTION.LIST>" if name == "Wall Paint 20L" else "")
+                     + (f"<GSTHSNNAME>{GST_RATES.get(name, ('', 18))[0]}</GSTHSNNAME>"
+                        + "".join(f"<RATEDETAILS.LIST><GSTRATEDUTYHEAD>{h}</GSTRATEDUTYHEAD><GSTRATE> {r:g}</GSTRATE></RATEDETAILS.LIST>"
+                                  for h, r in (("CGST", GST_RATES.get(name, ('', 18))[1] / 2), ("SGST/UTGST", GST_RATES.get(name, ('', 18))[1] / 2),
+                                               ("IGST", GST_RATES.get(name, ('', 18))[1]), ("Cess", 0)))
+                        if WANT_RATES[0] else "")
                      + 
                      f"<ACCOUNTINGALLOCATIONS.LIST><LEDGERNAME>{escape(v['sales_ledger'])}</LEDGERNAME>"
                      f"<AMOUNT>{amt(sign * a)}</AMOUNT></ACCOUNTINGALLOCATIONS.LIST></ALLINVENTORYENTRIES.LIST>")
@@ -527,6 +536,7 @@ class H(BaseHTTPRequestHandler):
                             f'<HSNCODE>{HSN[name]}</HSNCODE>{rate}</{tag}></STOCKITEM></TALLYMESSAGE>')
             out += "</REQUESTDATA></IMPORTDATA></BODY></ENVELOPE>"
         elif typ == "Data" and rid == "Day Book":
+            WANT_RATES[0] = True          # the Day Book has every field
             if DAYBOOK_BUG:
                 f = t = m_today = max(v["date"] for v in VOUCHERS)
             vs = "".join(xml_voucher(v) for v in VOUCHERS if f <= v["date"] <= t and not hidden(v))
@@ -541,8 +551,9 @@ class H(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             out = "<ENVELOPE><HEADER><VERSION>1</VERSION><STATUS>1</STATUS></HEADER><BODY><DESC><CMPINFO><COMPANY>0</COMPANY><GROUP>0</GROUP><LEDGER>0</LEDGER><VOUCHER>51</VOUCHER></CMPINFO></DESC><DATA><COLLECTION>"
+            WANT_RATES[0] = "RateDetails" in req
             if ctype == "Voucher":
-                light = "AllLedgerEntries" not in req
+                light = "AllLedgerEntries" not in req and "AllInventoryEntries" not in req
                 picked = set() if os.environ.get("NO_GUID_FILTER") == "1" else set(re.findall(r'\$GUID = "([^"]+)"', req))
                 # EXTRA_OUT=1: the date-filtered list also carries a voucher from just before the period
                 extra_out = os.environ.get("EXTRA_OUT") == "1" and not light and not picked and f

@@ -41,7 +41,7 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 SYNC_TOKEN = os.environ.get("SYNC_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8780"))
 SESSION_DAYS = 30
-APP_VERSION = "3.6.5"
+APP_VERSION = "3.6.6"
 MAX_PART = 200 * 1024 * 1024
 RUN_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 
@@ -366,7 +366,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/agent/part" and method == "POST":
             run, kind = q.get("run", ""), q.get("kind", "")
             if not RUN_RE.match(run) or kind not in ("groups", "vtypes", "ledgers", "stock", "daybook", "bills_rec", "bills_pay",
-                                                             "company", "company_x", "ledger_x", "stock_x", "stockat", "einv", "stock_godown", "ledgerat"):
+                                                             "company", "company_x", "ledger_x", "stock_x", "stockat", "einv", "gstrate", "stock_godown", "ledgerat"):
                 return self.send_json({"error": "bad part"}, 400)
             if kind in ("stockat", "ledgerat"):
                 day = q.get("date", "")
@@ -399,7 +399,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def commit(self, d, meta):
         parts = {"groups": [], "vtypes": [], "ledgers": [], "stock": [], "daybook": [],
-                 "bills_rec": None, "bills_pay": None, "company": {}, "company_x": {}, "ledger_x": {}, "stock_x": {}, "stock_at": {}, "ledger_at": {}, "einv": {},
+                 "bills_rec": None, "bills_pay": None, "company": {}, "company_x": {}, "ledger_x": {}, "stock_x": {}, "stock_at": {}, "ledger_at": {}, "einv": {}, "gstrate": {},
                  "stock_godown": None}
         skipped = []
         extra_fns = {"company": tp.parse_company_info, "company_x": tp.parse_company_regs, "ledger_x": tp.parse_ledger_extra, "stock_x": tp.parse_stock_extra}
@@ -414,6 +414,12 @@ class Handler(BaseHTTPRequestHandler):
                     parts["stock_godown"] = tp.parse_stock_godowns(tp.parse_xml(raw))
                 except Exception as e:
                     print("godown openings not usable:", e, file=sys.stderr)
+                continue
+            if kind == "gstrate":
+                try:
+                    parts["gstrate"].update(tp.parse_gst_rates(tp.parse_xml(raw)))
+                except Exception as e:   # optional: the invoice summary falls back to the voucher's own figures
+                    print("GST rates not usable:", e, file=sys.stderr)
                 continue
             if kind == "einv":
                 try:
@@ -493,6 +499,11 @@ class Handler(BaseHTTPRequestHandler):
                             months,
                             [str(g) for g in meta["guids"]] if isinstance(meta.get("guids"), list) else None,
                             parts["stock_at"], parts["stock_godown"], parts["ledger_at"])
+        if parts["gstrate"]:
+            try:
+                store.merge_gst(meta["company"], parts["gstrate"])
+            except Exception as e:
+                print("GST rates not stored:", e, file=sys.stderr)
         if parts["einv"]:            # also reaches vouchers not in this batch (e-way bill made after the invoice)
             try:
                 store.merge_einv(meta["company"], parts["einv"])

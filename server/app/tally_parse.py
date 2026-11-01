@@ -263,6 +263,46 @@ def _ledger_rows(entries):
     return rows
 
 
+def gst_rate_of(e):
+    """The GST rate Tally applied to one stock line of a voucher (its RATEDETAILS: IGST, or CGST + SGST), or None."""
+    rates = {}
+    for r in e.findall("RATEDETAILS.LIST"):
+        head = (r.findtext("GSTRATEDUTYHEAD") or "").strip().upper()
+        val = (r.findtext("GSTRATE") or "").strip()
+        if head and val:
+            try:
+                rates[head] = float(val)
+            except ValueError:
+                pass
+    if "IGST" in rates and rates["IGST"]:
+        return rates["IGST"]
+    c = rates.get("CGST")
+    s_ = next((v for k, v in rates.items() if k.startswith("SGST") or k.startswith("UTGST")), None)
+    if c is not None and s_ is not None:
+        return c + s_
+    if "IGST" in rates:
+        return rates["IGST"]            # 0: a nil-rated or exempt line
+    return None
+
+
+def parse_gst_rates(root):
+    """{voucher GUID: [{item, amount, hsn, gst}]}: the GST rate and HSN Tally used on each stock line."""
+    out = {}
+    for v in root.iter("VOUCHER"):
+        g = (v.findtext("GUID") or "").strip()
+        if not g:
+            continue
+        rows = []
+        for e in v.findall("ALLINVENTORYENTRIES.LIST") or v.findall("INVENTORYENTRIES.LIST"):
+            item = txt(e, "STOCKITEMNAME")
+            if item:
+                hsn = (e.findtext("GSTHSNNAME") or "").strip()
+                rows.append({"item": item, "amount": abs(num(txt(e, "AMOUNT"))), "hsn": hsn, "gst": gst_rate_of(e)})
+        if rows:
+            out[g] = rows
+    return out
+
+
 def _inv_row(e, force_dir=None):
     item = txt(e, "STOCKITEMNAME")
     if not item:
@@ -282,6 +322,7 @@ def _inv_row(e, force_dir=None):
         if el is not None and (el.text or "").strip():
             hsn = el.text.strip()
             break
+    gst = gst_rate_of(e)
     descr = [d.text.strip() for d in e.findall(".//BASICUSERDESCRIPTION.LIST/BASICUSERDESCRIPTION") if d.text and d.text.strip()]
     rtxt = txt(e, "RATE")
     # Invoice line made against a delivery / receipt note: Tally moved the stock on the note already
@@ -308,6 +349,7 @@ def _inv_row(e, force_dir=None):
         "hsn": hsn,
         "disc": num(txt(e, "DISCOUNT")),
         "descr": " ".join(descr),
+        "gst": gst,
     }
 
 
