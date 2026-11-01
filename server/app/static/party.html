@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Your account</title>
+<style>
+:root {
+  --paper: #ffffff; --sheet: #f4f6f9; --ink: #111827; --ink-2: #374151; --ink-3: #5b6474; --rule: #e2e7ef;
+  --accent: #1d5fc4; --accent-ink: #ffffff; --cr: #b42318; --due: #b42318; --ok: #1f7a4d; --chip: #eef3fb;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #1a202b; --sheet: #10141b; --ink: #eef1f6; --ink-2: #c5ccda; --ink-3: #9ba5b8; --rule: #2c3546;
+    --accent: #82aaff; --accent-ink: #0d1117; --cr: #ff8f85; --due: #ff8f85; --ok: #6fd19e; --chip: #1f2a3d; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--sheet); color: var(--ink); font: 400 16px/1.45 var(--sans); font-variant-numeric: tabular-nums; }
+main { max-width: 720px; margin: 0 auto; padding: 16px 16px 40px; }
+header.co { padding: 8px 2px 14px; }
+header.co h1 { font-size: 20px; margin: 0 0 2px; font-weight: 650; }
+header.co .meta { color: var(--ink-3); font-size: 13px; }
+.card { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+.who { color: var(--ink-3); font-size: 13px; }
+.party { font-size: 18px; font-weight: 600; margin: 2px 0 12px; overflow-wrap: anywhere; }
+.bal { font-size: 30px; font-weight: 700; letter-spacing: -.01em; }
+.bal.due { color: var(--due); }
+.bal.ok { color: var(--ok); }
+.balnote { color: var(--ink-2); font-size: 14px; margin-top: 2px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.row2 div { background: var(--chip); border-radius: 8px; padding: 8px 10px; }
+.label { color: var(--ink-3); font-size: 12px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+select, .btn { font: inherit; font-size: 15px; border-radius: 8px; padding: 9px 12px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+h2 { font-size: 15px; margin: 0 0 8px; color: var(--ink-2); font-weight: 600; }
+.list { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+.item { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 11px 14px; border-top: 1px solid var(--rule); color: inherit; text-decoration: none; }
+.item:first-child { border-top: 0; }
+a.item:active { background: var(--chip); }
+.item .t { font-weight: 550; overflow-wrap: anywhere; }
+.item .m { color: var(--ink-3); font-size: 13px; }
+.item .a { text-align: right; font-weight: 600; white-space: nowrap; }
+.item .b { text-align: right; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
+.cr { color: var(--cr); }
+.od { color: var(--due); }
+.carry { display: flex; justify-content: space-between; padding: 10px 14px; background: var(--chip); font-size: 14px; color: var(--ink-2); }
+.empty { padding: 18px 14px; color: var(--ink-3); }
+footer { color: var(--ink-3); font-size: 12px; text-align: center; margin-top: 18px; }
+.err { padding: 24px; text-align: center; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<main id="app"><div class="err">Loading your account ...</div></main>
+<script>
+(function () {
+  "use strict";
+  const base = location.pathname.replace(/\/+$/, "");
+  const app = document.getElementById("app");
+  const nf = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const h = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const fdate = (d) => { if (!d) return ""; const [y, m, dd] = d.split("-"); return `${+dd} ${MON[+m - 1]} ${y}`; };
+  const rs = (n) => "₹" + nf.format(Math.abs(n || 0));
+  // the books are the company's: a debit balance is what this party owes the company
+  const drcr = (n) => n > 0.004 ? `${rs(n)} Dr` : n < -0.004 ? `<span class="cr">${rs(n)} Cr</span>` : rs(0);
+  const fyOf = (d) => { const y = +d.slice(0, 4), m = +d.slice(5, 7); return m >= 4 ? y : y - 1; };
+
+  let period = null;
+
+  async function load() {
+    const qs = period ? `?from=${period[0]}&to=${period[1]}` : "";
+    let d;
+    try {
+      const r = await fetch(base + "/data" + qs, { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      d = await r.json();
+    } catch (e) {
+      app.innerHTML = '<div class="err">Couldn\'t load your account just now. Please try again in a little while.</div>';
+      return;
+    }
+    render(d);
+  }
+
+  function render(d) {
+    document.title = `${d.party} - ${d.company}`;
+    const C = d.company_info || {};
+    const coMeta = [(C.address || []).join(", "), C.gstin ? "GSTIN " + C.gstin : "", C.phone || "", C.email || ""].filter(Boolean).join(" · ");
+    const cl = d.closing || 0;
+    const today = new Date().toISOString().slice(0, 10);
+    const asOf = d.to > today ? today : d.to;          // the year isn't over yet: the balance is as on today
+    const balTxt = cl > 0.5 ? `${rs(cl)}` : cl < -0.5 ? `${rs(cl)}` : "₹0.00";
+    const balNote = cl > 0.5 ? `due from you as on ${fdate(asOf)}` : cl < -0.5 ? `in your favour as on ${fdate(asOf)}` : `nothing due as on ${fdate(asOf)}`;
+    // financial years the books cover, newest first
+    const fys = [];
+    for (let y = fyOf(d.last || d.to); y >= fyOf(d.first || d.from) && fys.length < 8; y--) fys.push(y);
+    const curFy = fyOf(d.from);
+    const pdfQs = `?from=${d.from}&to=${d.to}`;
+    const bills = d.bills || [];
+    const entries = (d.entries || []).slice().reverse();
+    app.innerHTML = `
+      <header class="co"><h1>${h(d.company)}</h1>${coMeta ? `<div class="meta">${h(coMeta)}</div>` : ""}</header>
+      <section class="card">
+        <div class="who">Your account</div>
+        <div class="party">${h(d.party)}</div>
+        <div class="bal ${cl > 0.5 ? "due" : cl < -0.5 ? "ok" : ""}">${balTxt}</div>
+        <div class="balnote">${balNote}</div>
+        <div class="row2">
+          <div><div class="label">Opening, ${fdate(d.from)}</div>${drcr(d.opening)}</div>
+          <div><div class="label">Closing, ${fdate(asOf)}</div>${drcr(d.closing)}</div>
+        </div>
+      </section>
+      <div class="controls">
+        <select id="fy" aria-label="Financial year">${fys.map((y) => `<option value="${y}" ${y === curFy ? "selected" : ""}>April ${y} to March ${y + 1}</option>`).join("")}</select>
+        <a class="btn primary" href="${base}/ledger.pdf${pdfQs}" target="_blank" rel="noopener">Download statement (PDF)</a>
+      </div>
+      ${bills.length ? `<h2>Pending bills</h2><div class="list">${bills.map((b) => `<div class="item">
+          <div class="t">${h(b.ref || "Bill")}</div><div class="a">${drcr(b.amount)}</div>
+          <div class="m">${b.date ? fdate(b.date) : ""}${b.due ? `, due ${fdate(b.due)}` : ""}</div>
+          <div class="b">${b.overdue > 0 ? `<span class="od">${b.overdue} days overdue</span>` : ""}</div></div>`).join("")}</div>` : ""}
+      <h2>Entries</h2>
+      <div class="list">
+        <div class="carry"><span>Closing balance</span><span>${drcr(d.closing)}</span></div>
+        ${entries.map((e) => `<a class="item" href="${base}/v/${e.id}.pdf" target="_blank" rel="noopener">
+            <div class="t">${h(e.vtype)} ${h(e.number)}</div><div class="a">${drcr(e.amount)}</div>
+            <div class="m">${fdate(e.date)}${e.against ? ` · ${h(e.against)}` : ""}</div><div class="b">Bal ${drcr(e.balance)}</div></a>`).join("")
+          || '<div class="empty">No entries in this period.</div>'}
+        <div class="carry"><span>Opening balance</span><span>${drcr(d.opening)}</span></div>
+      </div>
+      <footer>Tap an entry to open its bill or voucher. Figures as in ${h(d.company)}'s books${d.synced ? `, updated ${new Date(d.synced * 1000).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : ""}.</footer>`;
+    document.getElementById("fy").onchange = (ev) => {
+      const y = +ev.target.value;
+      period = [`${y}-04-01`, `${y + 1}-03-31`];
+      load();
+    };
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>

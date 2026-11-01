@@ -32,6 +32,7 @@ import backup  # noqa: E402
 import users  # noqa: E402
 import entries  # noqa: E402
 import bankrec  # noqa: E402
+import links  # noqa: E402
 import threading  # noqa: E402
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
@@ -41,7 +42,7 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 SYNC_TOKEN = os.environ.get("SYNC_TOKEN", "")
 PORT = int(os.environ.get("PORT", "8780"))
 SESSION_DAYS = 30
-APP_VERSION = "3.6.7"
+APP_VERSION = "3.7.0"
 MAX_PART = 200 * 1024 * 1024
 RUN_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 
@@ -186,6 +187,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/pdf")
         self.send_header("Content-Disposition", f'inline; filename="{safe}.pdf"')
+        self.send_header("X-Robots-Tag", "noindex")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -327,6 +329,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.agent(method, path, q)
             if path.startswith("/api/"):
                 return self.api(method, path, q)
+            if path.startswith("/p/") and method == "GET":
+                return self.party_page(path, q)
             if method == "GET":
                 return self.serve_static(path)
             self.send_json({"error": "not found"}, 404)
@@ -335,6 +339,66 @@ class Handler(BaseHTTPRequestHandler):
             tb = traceback.extract_tb(e.__traceback__)
             where = f" (in {tb[-1].name}, {os.path.basename(tb[-1].filename)} line {tb[-1].lineno})" if tb else ""
             self.send_json({"error": f"{type(e).__name__}: {e}{where} [server {APP_VERSION}]"}, 500)
+
+    # ------------------------------------------------------------ customer links (no login: the link is the key)
+    def party_page(self, path, q):
+        m = re.match(r"^/p/([A-Za-z0-9_-]{8,64})(/.*)?$", path)
+        found = links.find(m.group(1)) if m else None
+        rest = (m.group(2) or "/") if m else ""
+        if not found:
+            time.sleep(0.8)                       # slows down anyone trying links at random
+            return self.send_html("<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                                  "<title>Link not valid</title><body style='font-family:system-ui;padding:24px;color:#333'>"
+                                  "<h2>This link isn't valid any more</h2><p>Please ask for a new link.</p>", 404)
+        cid, company, party = found
+        if rest in ("", "/"):
+            with open(os.path.join(STATIC, "party.html"), "rb") as f:
+                return self.send_html(f.read())
+        dates = lambda: (q.get("from") if re.match(r"^\d{4}-\d{2}-\d{2}$", q.get("from", "")) else None,
+                         q.get("to") if re.match(r"^\d{4}-\d{2}-\d{2}$", q.get("to", "")) else None)
+        if rest == "/data":
+            f, t = dates()
+            d = store.ledger(cid, party, f, t)
+            if not d:
+                return self.send_json({"error": "not found"}, 404)
+            ci = d.get("company_info") or {}
+            co = next((c for c in store.companies() if c["id"] == cid), {})
+            return self.send_json({
+                "company": company, "party": party,
+                "company_info": {k: ci.get(k) for k in ("address", "gstin", "state", "pincode", "email", "phone") if ci.get(k)},
+                "from": d["from"], "to": d["to"], "first": co.get("first_vch") or d["from"], "last": co.get("last_vch") or d["to"],
+                "synced": co.get("last_sync"),
+                "opening": d["opening"], "closing": d["closing"], "debit": d.get("debit"), "credit": d.get("credit"),
+                "entries": [{k: e.get(k) for k in ("id", "date", "vtype", "number", "against", "amount", "balance")} for e in d["entries"]],
+                "bills": [{k: b.get(k) for k in ("ref", "date", "due", "amount", "overdue", "interest")} for b in (d.get("bills") or [])
+                          if abs(b.get("amount") or 0) > 0.5],
+            })
+        if rest == "/ledger.pdf":
+            f, t = dates()
+            d = store.ledger(cid, party, f, t)
+            if not d:
+                return self.send_json({"error": "not found"}, 404)
+            return self.send_pdf(pdf.ledger_pdf(d), f"{party} statement")
+        mv = re.match(r"^/v/(\d+)\.pdf$", rest)
+        if mv:
+            d = store.voucher(cid, int(mv.group(1)))
+            # only this party's own vouchers
+            if not d or not (d["voucher"].get("party") == party or any(l["ledger"] == party for l in d["lines"])):
+                return self.send_json({"error": "not found"}, 404)
+            v = d["voucher"]
+            return self.send_pdf(pdf.voucher_pdf(d), f"{v['vtype']} {v['number']}")
+        return self.send_json({"error": "not found"}, 404)
+
+    def send_html(self, body, status=200):
+        body = body.encode() if isinstance(body, str) else body
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Robots-Tag", "noindex, nofollow")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     # ------------------------------------------------------------ agent endpoints
     def agent(self, method, path, q):
@@ -637,6 +701,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/telegram"):
             return self.telegram(method, path)
 
+        if path == "/api/links":                # Settings: the address customers use, and every link given out
+            if method == "POST":
+                data = json.loads(self.body(4096) or b"{}")
+                if "base" in data:
+                    links.set_base(str(data.get("base") or ""))
+                if data.get("revoke"):
+                    links.revoke(str(data["revoke"]))
+            return self.send_json(links.listing())
+
         if path == "/api/backups":
             if method == "POST":
                 self.body(4096)
@@ -731,6 +804,18 @@ class Handler(BaseHTTPRequestHandler):
                     f, t = q.get("from") or None, q.get("to") or None
                     out.update(bankrec.check(cid, ledger, saved, f, t))
             return self.send_json(out)
+
+        mp = re.match(r"^/api/c/(\d+)/party_link$", path)
+        if mp:                                  # a party's customer link (made the first time it is asked for)
+            cid, party = int(mp.group(1)), unquote(q.get("party", "")).strip()
+            if not party or not self.allowed(cid, "ledger", {"name": party}, None):
+                return self.send_json({"error": "not allowed"}, 403)
+            co = next((c for c in store.companies() if c["id"] == cid), None)
+            if not co or not store.ledger_exists(cid, party):
+                return self.send_json({"error": "No such ledger."}, 404)
+            tok = links.get(co["name"], party)
+            origin = (self.headers.get("X-Forwarded-Proto") or "http") + "://" + (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "")
+            return self.send_json({"url": links.url(tok, origin), "path": f"/p/{tok}", "base": links.base()})
 
         mp = re.match(r"^/api/c/(\d+)/stockmin$", path)
         if mp and method == "POST":

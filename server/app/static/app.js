@@ -398,9 +398,62 @@ async function vParties(q) {
     (list.length > 300 ? `<div class="note">Showing 300 of ${list.length}. Type to narrow down.</div>` : "");
 }
 
-async function sharePdf(url, name) {
+// ---- customer links: a private page where a party sees their own ledger, bills and vouchers
+const LINKS = {};
+async function partyLink(party) {
+  if (!party) return "";
+  const key = S.cid + "|" + party;
+  if (LINKS[key]) return LINKS[key];
+  try {
+    const d = await api(cpath("party_link", { party }));
+    LINKS[key] = d.base ? d.url : location.origin + d.path;
+  } catch (e) { return ""; }
+  return LINKS[key];
+}
+function linkLine(link) {
+  const co = S.companies.find((c) => c.id === S.cid)?.name || "";
+  return link ? `\n\nSee your account with ${co} any time (ledger, bills, invoices): ${link}` : "";
+}
+// every WhatsApp message to a party carries their link
+document.addEventListener("click", async (ev) => {
+  const a = ev.target.closest && ev.target.closest("a[data-wa-party]");
+  if (!a) return;
+  ev.preventDefault();
+  const link = await partyLink(a.dataset.waParty);
+  const u = new URL(a.href);
+  u.searchParams.set("text", (u.searchParams.get("text") || "") + linkLine(link));
+  if (window.BahiAndroid || !window.open(u.href, "_blank", "noopener")) location.href = u.href;
+});
+
+async function linkDialog(party) {
+  const link = await partyLink(party);
+  if (!link) { toast("Couldn't make the link."); return; }
+  const local = /^https?:\/\/(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(link);
+  const dlg = $("#sheet");
+  dlg.innerHTML = `<h3>Customer link</h3><div style="padding:0 14px 14px">
+    <p class="hint" style="margin:0 0 10px">${h(party)} can open this any time to see their own ledger, pending bills and invoices (as PDFs), and nothing else. It is sent with every ledger or voucher you share with them.</p>
+    <input type="text" readonly value="${h(link)}" style="width:100%;font-size:14px" onfocus="this.select()">
+    ${local ? '<p class="note od" style="border:0;padding:8px 0 0">This address only works inside your network. Set the address customers use in Settings, Customer links.</p>' : ""}
+    <div class="actions" style="padding-top:12px">
+      <button class="btn primary" data-a="copy">Copy</button><button class="btn" data-a="share">${ICON.share}Share</button>
+      <button class="btn" data-a="open">Open</button><button class="btn" data-a="close">Close</button></div></div>`;
+  dlg.showModal();
+  dlg.onclick = async (ev) => {
+    const a = ev.target.closest("[data-a]")?.dataset.a;
+    if (!a && ev.target === dlg) { dlg.close(); dlg.onclick = null; }
+    if (a === "copy") { try { await navigator.clipboard.writeText(link); toast("Link copied"); } catch (e) { toast("Select the link and copy it"); } }
+    if (a === "share") { try { await navigator.share({ text: linkLine(link).trim() }); } catch (e) { if (e.name !== "AbortError") { try { await navigator.clipboard.writeText(link); toast("Link copied"); } catch (x) {} } } }
+    if (a === "open") window.open(link, "_blank", "noopener");
+    if (a === "close") { dlg.close(); dlg.onclick = null; }
+  };
+}
+
+async function sharePdf(url, name, party) {
+  const text = party ? linkLine(await partyLink(party)).trim() : "";
   if (window.BahiAndroid) {      // the Android app downloads it and opens the phone's share sheet (WhatsApp, email...)
-    BahiAndroid.share(new URL(url, location.origin).href, name.replace(/[^\w .-]+/g, "").slice(0, 80) + ".pdf");
+    const file = name.replace(/[^\w .-]+/g, "").slice(0, 80) + ".pdf";
+    if (text && BahiAndroid.shareWithText) BahiAndroid.shareWithText(new URL(url, location.origin).href, file, text);
+    else BahiAndroid.share(new URL(url, location.origin).href, file);
     return;
   }
   toast("Preparing PDF");
@@ -412,7 +465,7 @@ async function sharePdf(url, name) {
   } catch (e) { toast("Couldn't make the PDF. Check your connection."); return; }
   const file = new File([blob], name.replace(/[^\w .-]+/g, "").slice(0, 80) + ".pdf", { type: "application/pdf" });
   try {
-    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name, ...(text ? { text } : {}) }); return; }
   } catch (e) { if (e.name === "AbortError") return; }
   const u = URL.createObjectURL(blob);
   const a = document.createElement("a"); a.href = u; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
@@ -457,7 +510,8 @@ async function vLedger(name) {
         <button class="btn primary" id="sharepdf">${ICON.share}Share PDF</button>
         <a class="btn" href="${pdfUrl}" target="_blank" rel="noopener">${ICON.print}View PDF</a>
         ${excelBtn("ledger", { name, ...ledgerParams() })}
-        ${phone ? `<a class="btn wa" href="https://wa.me/${phone}?text=${enc(waText)}" target="_blank" rel="noopener">${ICON.wa}${isDebtor ? "Remind" : "WhatsApp"}</a><a class="btn" href="tel:+${phone}">${ICON.call}Call</a>` : ""}
+        <button class="btn" id="plink">${ICON.share}Customer link</button>
+        ${phone ? `<a class="btn wa" data-wa-party="${h(L.name)}" href="https://wa.me/${phone}?text=${enc(waText)}" target="_blank" rel="noopener">${ICON.wa}${isDebtor ? "Remind" : "WhatsApp"}</a><a class="btn" href="tel:+${phone}">${ICON.call}Call</a>` : ""}
       </div>
       <div class="totals">
         <div><div class="label">Opening</div>${drcr(d.opening)}</div>
@@ -479,7 +533,8 @@ async function vLedger(name) {
     ${pending.length ? `<section class="page billsec"><div class="block-title">Pending bills <span>${overdue.length ? `${overdue.length} overdue` : ""}${d.interest > 0.5 ? `, interest ${rupees(d.interest, false)}` : ""}</span></div>${billRows(pending.slice(0, 5))}
       ${pending.length > 5 ? `<div id="morebills" hidden>${billRows(pending.slice(5))}</div><button class="row" id="showbills" style="justify-content:center;color:var(--ink-2);font-weight:500">Show all ${pending.length} bills</button>` : ""}</section>` : ""}`;
   wirePeriod(d.from, d.to, "ledger");
-  $("#sharepdf").onclick = () => sharePdf(pdfUrl, `${L.name} statement`);
+  $("#sharepdf").onclick = () => sharePdf(pdfUrl, `${L.name} statement`, L.name);
+  $("#plink").onclick = () => linkDialog(L.name).catch(fail);
   view.querySelectorAll("#esorts [data-sort]").forEach((b) => b.onclick = () => {
     const y = window.scrollY; savePref("esort", b.dataset.sort); vLedger(name).then(() => window.scrollTo(0, y)).catch(fail);
   });
@@ -549,7 +604,7 @@ async function vDues(kind) {
             <div class="end">${money(p.amount)}</div><span class="chev down"></span></button>
           <div class="bills" id="pb${i}" hidden>${billRows(p.bills)}
             <div class="actions" style="padding-top:10px"><a class="btn" href="#/ledger/${enc(p.name)}">Open ledger</a>
-            ${rec && ph ? `<a class="btn wa" href="https://wa.me/${ph}?text=${enc(reminderText(p.name, co, p.amount, od, p.interest, d.interest_rate))}" target="_blank" rel="noopener">${ICON.wa}Remind</a>` : ""}</div></div>
+            ${rec && ph ? `<a class="btn wa" data-wa-party="${h(p.name)}" href="https://wa.me/${ph}?text=${enc(reminderText(p.name, co, p.amount, od, p.interest, d.interest_rate))}" target="_blank" rel="noopener">${ICON.wa}Remind</a>` : ""}</div></div>
         </div>`;
       }).join("") || `<div class="empty">${rec ? "Nobody owes you money right now." : "You don't owe anyone right now."}</div>`}
     </section>
@@ -928,7 +983,7 @@ async function vVoucher(id) {
         <div style="color:var(--ink-3)">${E.ewb_no ? "The PDF has the e-Way Bill as page 2." : ""}${E.qr ? " The PDF prints the signed QR code." : ""}</div></div></section>` : ""; })()}
     ${V.narration ? `<section class="page"><div class="block-title">Narration</div><div class="info" style="white-space:pre-line">${h(V.narration)}</div></section>` : ""}
     ${!V.balanced ? '<p class="note warn">This voucher\'s debits and credits did not match when it was synced.</p>' : ""}`;
-  $("#vpdf").onclick = () => sharePdf(`/api/c/${S.cid}/voucher_pdf/${id}`, `${V.vtype} ${V.number}`);
+  $("#vpdf").onclick = () => sharePdf(`/api/c/${S.cid}/voucher_pdf/${id}`, `${V.vtype} ${V.number}`, V.party);
 }
 
 async function vSales(kind) {
@@ -1112,6 +1167,34 @@ async function vCheck() {
     </section>`;
 }
 
+async function linksSection() {
+  const el = $("#lnsec");
+  if (!el) return;
+  const d = await api("/api/links");
+  const ago = (t) => t ? fdate(new Date(t * 1000).toISOString().slice(0, 10)) : "not yet";
+  el.innerHTML = `<div class="block-title">Customer links <span>${d.links.length} given out</span></div>
+    <form class="form" id="lnf">
+      <label>Address customers open the links with<input type="url" name="base" value="${h(d.base)}" placeholder="${h(location.origin)}"></label>
+      <button class="btn primary" type="submit">Save</button>
+      <p class="hint">Each party gets a private link to see their own ledger, pending bills and invoices any time; nothing else of yours. It goes with every ledger or voucher you share with them, and with WhatsApp reminders. Customers must be able to open this address from the internet (for example through a Cloudflare Tunnel to Bahi). Leave it empty to use the address you open Bahi with.</p></form>
+    ${d.links.length ? `<div class="block-title" style="padding-top:4px">Links</div>${d.links.map((l) => `<div class="row" style="cursor:default"><div class="main">
+        <div class="name">${h(l.party)}</div><div class="meta">${S.companies.length > 1 ? h(l.company) + ", " : ""}opened ${l.views ? `${l.views} time${l.views > 1 ? "s" : ""}, last ${ago(l.opened)}` : "not yet"}</div></div>
+        <button class="chip" data-stop="${h(l.token)}">Stop link</button></div>`).join("")}
+      <p class="hint" style="padding:6px 14px 14px">Stopping a link makes it stop working at once; the party gets a new one the next time you share something with them.</p>` : ""}`;
+  $("#lnf").onsubmit = async (e) => {
+    e.preventDefault();
+    await fetch("/api/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ base: e.target.base.value.trim() }) });
+    Object.keys(LINKS).forEach((k) => delete LINKS[k]);
+    toast("Saved"); linksSection().catch(fail);
+  };
+  el.querySelectorAll("[data-stop]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Stop this link? It will stop working straight away.")) return;
+    await fetch("/api/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revoke: b.dataset.stop }) });
+    Object.keys(LINKS).forEach((k) => delete LINKS[k]);
+    linksSection().catch(fail);
+  });
+}
+
 async function vSettings() {
   setTitle(true);
   await loadCompanies();
@@ -1149,6 +1232,7 @@ async function vSettings() {
         <button class="btn primary" type="submit">Connect</button><div class="msg" id="tgmsg" role="status"></div></form>`}
     </section>
     <section class="page" id="intsec"></section>
+    <section class="page" id="lnsec"></section>
     <section class="page" id="stsec"></section>
     <section class="page" id="bksec"></section>
     <section class="page" id="offsec"></section>
@@ -1232,6 +1316,7 @@ async function vSettings() {
   showBackups();
   offlineSection();
   showStaff().catch(() => {});
+  linksSection().catch(() => {});
   (async () => {
     const it = await api("/api/interest").catch(() => null);
     if (!it || !$("#intsec")) return;
@@ -1767,7 +1852,7 @@ async function vCollect() {
           <div class="end">${money(p.balance)}<div class="meta">balance</div></div><span class="chev down"></span></button>
         <div class="bills" id="cb${i}" hidden>
           <div class="actions" style="padding:12px 14px 4px">
-              ${ph ? `<a class="btn wa" href="https://wa.me/${ph}?text=${enc(reminderText(p.name, co, p.balance, od, p.interest, S.irate || 0))}" target="_blank" rel="noopener">${ICON.wa}Remind</a><a class="btn" href="tel:+${ph}">${ICON.call}Call</a>` : ""}
+              ${ph ? `<a class="btn wa" data-wa-party="${h(p.name)}" href="https://wa.me/${ph}?text=${enc(reminderText(p.name, co, p.balance, od, p.interest, S.irate || 0))}" target="_blank" rel="noopener">${ICON.wa}Remind</a><a class="btn" href="tel:+${ph}">${ICON.call}Call</a>` : ""}
               <a class="btn" href="#/ledger/${enc(p.name)}">Ledger</a></div>
           <form class="form fu" data-party="${h(p.name)}" style="padding:8px 14px 14px">
             <div class="block-title" style="padding:0">Note and promised date</div>

@@ -14,6 +14,7 @@ import urllib.request
 import uuid
 from datetime import date
 
+import links
 import notify
 import pdf
 import store
@@ -134,7 +135,19 @@ def ledger_text(cid, name):
         for b in sorted(bills, key=lambda b: -(b.get("overdue") or 0))[:5]:
             when = f"{b['overdue']} days overdue" if (b.get("overdue") or 0) > 0 else (f"{b['age']} days old" if b.get("age") is not None else "")
             lines.append(f"• {notify._esc(b['ref'])}  {notify._inr(b['amount'])}  {when}")
+    link = party_link(cid, L["name"])
+    if link:
+        lines.append("")
+        lines.append(f"Customer link (forward it to them): {notify._esc(link)}")
     return "\n".join(lines)
+
+
+def party_link(cid, name):
+    """The party's customer link, when Settings has the address customers use (Telegram can't know it)."""
+    if not links.base():
+        return ""
+    co = next((c["name"] for c in store.companies() if c["id"] == cid), None)
+    return links.url(links.get(co, name)) if co else ""
 
 
 def _code(cid, name):
@@ -236,8 +249,9 @@ def answer_button(s, data):
         if not d:
             _send(s, "That ledger isn't in Bahi any more.")
             return
+        link = party_link(cid, name)
         r = _send_pdf(s, pdf.ledger_pdf(d), f"{name} {f:%b %Y}{'' if kind == 'm' else ' to ' + today.strftime('%b %Y')}.pdf",
-                      f"{name}: {f:%d %b %Y} to {today:%d %b %Y}")
+                      f"{name}: {f:%d %b %Y} to {today:%d %b %Y}" + (f"\nSee your account any time: {link}" if link else ""))
         if not r.get("ok"):
             _send(s, "Couldn't send the PDF: " + notify._esc(r.get("description", "")))
 

@@ -407,3 +407,13 @@ The PDF follows Tally's *Ledger Account* layout:
 - Figures are as of the **last sync**. If the Tally PC is off, the app shows the last copy and says so at the top.
 - Without internet, the phone shows the screens you opened before, with a note saying it's a saved copy.
 - PDFs print Hindi (Devanagari). Other Indian scripts such as Gujarati still print as "?". The ₹ sign prints correctly.
+
+## Customer links
+
+Every party can have a private link to their own account: their ledger (any financial year), pending bills, and each invoice or voucher as a PDF. Nothing else of yours is visible through it, and it needs no login.
+
+- **Get a party's link:** open their ledger and tap **Customer link** (copy, share or open it).
+- **Sent automatically:** the link goes with every ledger or voucher PDF you share with the party, with WhatsApp reminders from Dues and the follow-up list, and in Telegram ledger answers (to forward).
+- **The address customers use:** set it in **Settings, Customer links** (for example `https://books.yourdomain.com`). Customers must be able to open it from the internet, for example through a Cloudflare Tunnel to Bahi on Unraid. Left empty, links use the address you open Bahi with, which only works inside your network unless that address is public.
+- **Stop a link:** Settings, Customer links, **Stop link**. It stops working at once; the party gets a new one the next time you share something with them.
+- Links are kept in `links.json` in the Bahi data folder, so they keep working after a full sync or a restored backup.

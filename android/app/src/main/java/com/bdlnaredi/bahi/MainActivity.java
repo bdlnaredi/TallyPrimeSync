@@ -62,6 +62,7 @@ public class MainActivity extends Activity {
     private WebView web;
     private ProgressBar bar;
     private ValueCallback<Uri[]> fileCallback;
+    private String shareText;          // a message to go with the next shared file (the customer link)
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     @Override
@@ -349,6 +350,8 @@ public class MainActivity extends Activity {
         send.setType(mime);
         send.putExtra(Intent.EXTRA_STREAM, uri);
         send.putExtra(Intent.EXTRA_SUBJECT, file.getName());
+        if (share && shareText != null && !shareText.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, shareText);
+        shareText = null;
         send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         if (!share) {
             Intent view = new Intent(Intent.ACTION_VIEW);
@@ -373,6 +376,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void share(String url, String name) {
             ui.post(() -> fetchFile(url, name, true));
+        }
+
+        @JavascriptInterface
+        public void shareWithText(String url, String name, String text) {
+            ui.post(() -> { shareText = text; fetchFile(url, name, true); });
         }
 
         @JavascriptInterface
