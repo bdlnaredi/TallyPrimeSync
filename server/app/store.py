@@ -1320,6 +1320,46 @@ def _is_tax(l):
         or bool(_re.search(r"GST|CESS", l["name"] or "", _re.I)))
 
 
+_HSN_CACHE = {}
+
+
+def hsn_rates(cid):
+    """{hsn: GST rate} as this company's own invoices show it: from invoices with a single HSN (or a single
+    rate), where the rate is plain from the tax; plus the GST rate set on stock items in Tally. Used to tell
+    the slabs apart on an invoice with items at different rates. Worked out once per sync."""
+    with conn() as c:
+        r = c.execute("SELECT last_sync FROM company WHERE id=?", (cid,)).fetchone()
+        stamp = r["last_sync"] if r else None
+        hit = _HSN_CACHE.get(cid)
+        if hit and hit[0] == stamp:
+            return hit[1]
+        from .pdf import gst_summary_plain     # the same rules as the printed summary
+        items, taxes = {}, {}
+        for x in c.execute("""SELECT i.voucher_id vid, i.hsn, SUM(i.amount) amt FROM vitem i JOIN voucher v ON v.id=i.voucher_id
+                WHERE v.company_id=? AND v.base IN ('Sales','Purchase','Credit Note','Debit Note') AND i.hsn<>''
+                GROUP BY i.voucher_id, i.hsn""", (cid,)):
+            items.setdefault(x["vid"], []).append({"hsn": x["hsn"], "amount": abs(x["amt"])})
+        for x in c.execute("""SELECT vl.voucher_id vid, vl.ledger, vl.amount, l.chain, l.taxtype, l.gst_head, l.name
+                FROM vline vl JOIN voucher v ON v.id=vl.voucher_id LEFT JOIN ledger l ON l.company_id=v.company_id AND l.name=vl.ledger
+                WHERE v.company_id=? AND v.base IN ('Sales','Purchase','Credit Note','Debit Note')""", (cid,)):
+            if x["vid"] in items and _is_tax(x):
+                taxes.setdefault(x["vid"], []).append({"ledger": x["ledger"], "amount": x["amount"]})
+        votes = {}
+        for vid, its in items.items():
+            for hsn, rate in gst_summary_plain(its, taxes.get(vid, [])).items():
+                votes.setdefault(hsn, {}).setdefault(rate, 0)
+                votes[hsn][rate] += 1
+        out = {}
+        for hsn, vs in votes.items():
+            rate, n = max(vs.items(), key=lambda kv: kv[1])
+            if n >= 0.7 * sum(vs.values()):
+                out[hsn] = rate
+        for x in c.execute("SELECT hsn, gst FROM stock WHERE company_id=? AND hsn<>'' AND gst IS NOT NULL", (cid,)):
+            out.setdefault(x["hsn"], float(x["gst"]))
+    _HSN_CACHE[cid] = (stamp, out)
+    return out
+
+
 def voucher(cid, vid):
     with conn() as c:
         v = c.execute("SELECT * FROM voucher WHERE company_id=? AND id=?", (cid, vid)).fetchone()
@@ -1354,7 +1394,12 @@ def voucher(cid, vid):
             pinfo = {k: party[k] for k in ("name", "gstin", "mobile", "phone", "email")}
             pinfo.update(json.loads(party["extra"] or "{}"))
             pinfo["gstin"] = party["gstin"] or pinfo.get("gstin", "")
-        return {"company": crow["name"], "company_info": json.loads(crow["info"] or "{}"), "bank": bank,
+        try:
+            known = hsn_rates(cid)
+        except Exception as e:            # a help for printing only
+            print("hsn rates not worked out:", e, file=sys.stderr)
+            known = {}
+        return {"company": crow["name"], "company_info": json.loads(crow["info"] or "{}"), "bank": bank, "hsn_rates": known,
                 "voucher": v, "lines": lines,
                 "items": _rows(c, """SELECT item, qty, unit, rate, amount, hsn, disc, descr,
                         (SELECT s.gst FROM stock s WHERE s.company_id=? AND s.name=x.item) gst FROM vitem x WHERE voucher_id=?
