@@ -1356,8 +1356,11 @@ def voucher(cid, vid):
             pinfo["gstin"] = party["gstin"] or pinfo.get("gstin", "")
         return {"company": crow["name"], "company_info": json.loads(crow["info"] or "{}"), "bank": bank,
                 "voucher": v, "lines": lines,
-                "items": _rows(c, """SELECT item, qty, unit, rate, amount, hsn, disc, descr FROM vitem WHERE voucher_id=?
-                    UNION ALL SELECT item, qty, unit, rate, amount, hsn, disc, descr FROM vitem_np WHERE voucher_id=?""", (vid, vid)),
+                "items": _rows(c, """SELECT item, qty, unit, rate, amount, hsn, disc, descr,
+                        (SELECT s.gst FROM stock s WHERE s.company_id=? AND s.name=x.item) gst FROM vitem x WHERE voucher_id=?
+                    UNION ALL SELECT item, qty, unit, rate, amount, hsn, disc, descr,
+                        (SELECT s.gst FROM stock s WHERE s.company_id=? AND s.name=x.item) gst FROM vitem_np x WHERE voucher_id=?""",
+                               (cid, vid, cid, vid)),
                 "bills": [dict(b, vid=(c.execute("""SELECT v.id FROM vbill x JOIN voucher v ON v.id=x.voucher_id
                     WHERE v.company_id=? AND x.ledger=? AND x.name=? AND x.btype='New Ref' AND v.id<>? LIMIT 1""",
                     (cid, b["ledger"], b["name"], vid)).fetchone() or {"id": None})["id"])

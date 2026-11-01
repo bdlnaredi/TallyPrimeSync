@@ -5,6 +5,7 @@ Text with Hindi (Devanagari) in it is laid out with Noto Sans Devanagari (letter
 Pillow's text layout) and placed as a sharp high-resolution stencil, so it prints like normal text.
 """
 import os
+import re
 import zlib
 from datetime import date
 from functools import lru_cache
@@ -353,6 +354,116 @@ def _party_lines(name, addr, gstin, state, extra=()):
     return lines
 
 
+# ---------------------------------------------------------------- GST rates
+SLABS = (0.1, 0.25, 1, 1.5, 3, 5, 6, 12, 18, 28, 40)       # GST rates; CGST/SGST are half of these
+
+
+def _head(name):
+    nm = name.upper()
+    return "Integrated Tax" if "IGST" in nm else "Central Tax" if "CGST" in nm else \
+        "State Tax" if ("SGST" in nm or "UTGST" in nm) else "Cess"
+
+
+def _named_rate(name):
+    """The rate in a tax ledger's name ("CGST OUTPUT 2.5%", "Input IGST @18 %"), or None."""
+    m = re.search(r"(\d+(?:\.\d+)?)\s*%", name or "")
+    return float(m.group(1)) if m else None
+
+
+def _snap(rate, head):
+    """A worked-out rate snapped to the GST slab it is meant to be (rounding in Tally makes 2.49 of 2.5)."""
+    slabs = [x / 2 for x in SLABS] if head in ("Central Tax", "State Tax") else list(SLABS)
+    best = min(slabs, key=lambda x: abs(x - rate))
+    return best if abs(best - rate) <= max(0.02, rate * 0.004) else round(rate, 2)
+
+
+def gst_summary(items, tax_lines):
+    """The HSN-wise tax table: [(hsn, taxable, {head: (rate, amount)})] and the heads in order.
+    Each item's GST rate from Tally's stock item is used when it explains the tax on the voucher; otherwise the
+    rates in the tax ledgers' names; otherwise the rate worked out from the totals."""
+    heads, named = {}, {}
+    for l in tax_lines:
+        h = _head(l["ledger"])
+        heads[h] = heads.get(h, 0) + abs(l["amount"])
+        r = _named_rate(l["ledger"])
+        named.setdefault(h, set()).add(r)
+    order = [h for h in ("Integrated Tax", "Central Tax", "State Tax", "Cess") if h in heads]
+    taxable = sum(i["amount"] for i in items)
+    half = lambda h: h in ("Central Tax", "State Tax")
+
+    # 1. item rates (from the stock item in Tally), when they add up to the tax on the voucher
+    if items and all(i.get("gst") is not None for i in items) and "Cess" not in heads:
+        groups = {}
+        for i in items:
+            k = (i.get("hsn") or "", float(i["gst"]))
+            groups[k] = groups.get(k, 0.0) + i["amount"]
+        expect = {h: sum(v * (k[1] / 2 if half(h) else k[1]) / 100 for k, v in groups.items()) for h in order}
+        if all(abs(expect[h] - heads[h]) <= max(1.0, heads[h] * 0.005) for h in order):
+            rows = []
+            for (hsn, g), v in groups.items():
+                cells = {}
+                for h in order:
+                    r = g / 2 if half(h) else g
+                    amt = v * r / 100
+                    if expect[h]:
+                        amt *= heads[h] / expect[h]          # rounding as on the voucher
+                    cells[h] = (r, amt)
+                rows.append((hsn, v, cells))
+            return order, rows, True
+    groups = {}
+    for i in items:
+        groups[i.get("hsn") or ""] = groups.get(i.get("hsn") or "", 0.0) + i["amount"]
+    # 2. several slabs, one tax ledger per slab with the rate in its name: each ledger's tax tells the value
+    #    taxed at that rate; match those to the HSN groups (sums of groups too, when one slab covers several)
+    per = {}
+    for l in tax_lines:
+        h, r = _head(l["ledger"]), _named_rate(l["ledger"])
+        if r:
+            per.setdefault(h, {}).setdefault(r, 0.0)
+            per[h][r] += abs(l["amount"])
+    if order and all(h in per and len(per[h]) > 1 and None not in named[h] for h in order) and groups:
+        h0 = order[0]
+        bases = {r: a * 100 / r for r, a in per[h0].items()}
+        assign, left = {}, dict(groups)
+        for r, base in sorted(bases.items(), key=lambda x: -x[1]):
+            # the HSN groups whose values add up to this slab's base (fine for the handful of HSNs on an invoice)
+            keys = list(left)
+            found = None
+            for mask in range(1, 1 << min(len(keys), 12)):
+                pick = [keys[b] for b in range(len(keys)) if mask >> b & 1]
+                if abs(sum(left[k] for k in pick) - base) <= max(1.0, base * 0.002):
+                    found = pick
+                    break
+            if not found:
+                assign = None
+                break
+            for k in found:
+                assign[k] = r
+                left.pop(k)
+        if assign is not None and not left:
+            rows = []
+            for hsn, v in groups.items():
+                cells = {}
+                for h in order:
+                    r0 = assign[hsn]
+                    r = r0 if h == h0 else next((x for x in per[h] if abs(x - r0) < 1e-9), None) or (r0 * 2 if h == "Integrated Tax" else r0)
+                    cells[h] = (r, v * r / 100)
+                rows.append((hsn, v, cells))
+            return order, rows, False
+    # 3. one rate per head: from the ledger's name, else worked out (and snapped to a slab)
+    rate = {}
+    for h in order:
+        n = named.get(h, set())
+        if len(n) == 1 and None not in n:
+            rate[h] = next(iter(n))
+        elif taxable:
+            rate[h] = _snap(heads[h] / taxable * 100, h)
+        else:
+            rate[h] = None
+    rows = [(hsn, v, {h: (rate[h], heads[h] * (v / taxable if taxable else 0)) for h in order}) for hsn, v in groups.items()]
+    return order, rows, False
+
+
 # ---------------------------------------------------------------- Tax Invoice
 
 def invoice_pdf(d):
@@ -593,8 +704,15 @@ def invoice_pdf(d):
             amt = -l["amount"] if base in ("Sales", "Debit Note") else l["amount"]
             p.text(xs[2] - 6, y, fit(l["ledger"], 8.5, cols[1][1] - 12, True), 8.5, "BI", "right")
             if l["kind"] == "tax" and taxable:
-                rate = round(abs(amt) / taxable * 100, 2)
-                if abs(rate - round(rate * 2) / 2) < 0.02:
+                rate = _named_rate(l["ledger"])
+                if rate is None:
+                    rate = round(abs(amt) / taxable * 100, 2)
+                    ok = abs(rate - _snap(rate, _head(l["ledger"]))) < 1e-9
+                    if not ok and len(tax_lines) > 2:
+                        rate = None                         # several slabs on one voucher: no single rate to show
+                    elif not ok:
+                        rate = None
+                if rate is not None:
                     cell(y, "Rate", f"{rate:g} %")
                     cell(y, "per", "%")
             cell(y, "Amount", ("(-)" if amt < 0 else "") + inr(abs(amt)), "B")
@@ -632,24 +750,19 @@ def invoice_pdf(d):
     y -= 16
 
     if tax_lines:
-        heads = {}
-        for l in tax_lines:
-            nm = l["ledger"].upper()
-            hd = "Integrated Tax" if "IGST" in nm else "Central Tax" if "CGST" in nm else \
-                 "State Tax" if ("SGST" in nm or "UTGST" in nm) else "Cess"
-            heads[hd] = heads.get(hd, 0) + abs(l["amount"])
-        order = [h for h in ("Integrated Tax", "Central Tax", "State Tax", "Cess") if h in heads]
-        groups = {}
-        for it in items:
-            groups.setdefault(it.get("hsn") or "", 0.0)
-            groups[it.get("hsn") or ""] += it["amount"]
+        order, grows, _ = gst_summary(items if d["items"] else [], tax_lines)
+        if not grows:            # no stock lines (an accounting invoice): one row for the whole voucher
+            heads = {}
+            for l in tax_lines:
+                heads[_head(l["ledger"])] = heads.get(_head(l["ledger"]), 0) + abs(l["amount"])
+            grows = [("", taxable, {h: (_snap(heads[h] / taxable * 100, h) if taxable else None, heads[h]) for h in order})]
         tw = [0.0]
         hx = [L, L + 120, L + 200]
         rest = (R - L - 200 - 70) / max(1, len(order))
         for _ in order:
             hx.append(hx[-1] + rest)
         hx.append(R)
-        nrows = len(groups) + 1
+        nrows = len(grows) + 1
         th = 24 + 11 * nrows + 4
         y = ensure(th + 20, y)
         p.line(L, y, R, y)
@@ -668,19 +781,19 @@ def invoice_pdf(d):
         p.line(L, y - 24, R, y - 24)
         yy = y - 24
         tot_tax = 0.0
-        for k, (hsn, val) in enumerate(list(groups.items()) + [("Total", taxable)]):
+        totals = {h: sum(r[2][h][1] for r in grows) for h in order}
+        for k, (hsn, val, cells_) in enumerate(grows + [("Total", sum(r[1] for r in grows), {h: (None, totals[h]) for h in order})]):
             yy -= 11
             bold = hsn == "Total"
             p.text(hx[0] + 3, yy + 2, hsn, 8, "B" if bold else "R")
             p.text(hx[2] - 3, yy + 2, inr(val), 8, "B" if bold else "R", "right")
-            share = val / taxable if taxable else 0
             row_tax = 0.0
             for j, hname in enumerate(order):
                 a, b = hx[2 + j], hx[3 + j]
-                amt = heads[hname] * share
+                rt, amt = cells_[hname]
                 row_tax += amt
-                if not bold and taxable:
-                    p.text((a + b) / 2 - 13, yy + 2, f"{round(heads[hname] / taxable * 100, 2):g}%", 8, "R", "right")
+                if not bold and rt is not None:
+                    p.text((a + b) / 2 - 13, yy + 2, f"{rt:g}%", 8, "R", "right")
                 p.text(b - 3, yy + 2, inr(amt), 8, "B" if bold else "R", "right")
             p.text(R - 3, yy + 2, inr(row_tax), 8, "B" if bold else "R", "right")
             if bold:
@@ -826,11 +939,17 @@ def _eway_page(p, d, X, pname, pgst, pstate, ship_addr):
     taxes = [l for l in d["lines"] if l["kind"] == "tax"]
     taxable = sum(abs(i["amount"]) for i in d["items"]) or 0.0
     tax_total = sum(abs(l["amount"]) for l in taxes)
-    rate = ""
-    if taxable:
-        parts = [round(abs(l["amount"]) / taxable * 100, 2) for l in taxes]
-        rate = "+".join(f"{x:g}" for x in parts if x)
+    order, grows, by_item = gst_summary([dict(i, amount=abs(i["amount"])) for i in d["items"]], taxes) if taxes else ([], [], False)
+    by_hsn = {r[0]: r[2] for r in grows}
+
+    def item_rate(it):
+        if by_item:
+            g = float(it["gst"])
+            return "+".join(f"{(g / 2 if h in ('Central Tax', 'State Tax') else g):g}" for h in order)
+        cells_ = by_hsn.get(it.get("hsn") or "", {})
+        return "+".join(f"{cells_[h][0]:g}" for h in order if h in cells_ and cells_[h][0] is not None)
     for it in d["items"][:18]:
+        rate = item_rate(it)
         p.text(cx[0], y, it.get("hsn", ""), 8, "B")
         p.text(cx[1], y, fit(it["item"], 8.5, cx[2] - cx[1] - 50), 8.5)
         p.text(cx[2] + 40, y, f"{abs(it['qty']):g} {it.get('unit', '')}", 8.5, "R", "right")
