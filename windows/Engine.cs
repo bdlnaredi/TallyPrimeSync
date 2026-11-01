@@ -282,7 +282,10 @@ namespace BahiSync
                         if (File.Exists(from) && !File.Exists(to)) File.Copy(from, to);
                     }
                     string note = "";
-                    try { if (started) SetStartWithWindows(true); }      // start this copy with Windows instead of the old one
+                    // the earlier copy started with Windows (Bahi Sync) or ran from a scheduled task (batch files):
+                    // this copy takes that over
+                    started = true;
+                    try { if (started) SetStartWithWindows(true); }
                     catch (Exception e) { note = " (couldn't set it to start with Windows: " + e.Message + ")"; }
                     try
                     {

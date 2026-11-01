@@ -31,7 +31,11 @@ CloseApplications=yes
 RestartApplications=no
 
 [Tasks]
+Name: "startup"; Description: "Start Bahi Sync with Windows (syncs whenever this PC is on)"
 Name: "desktopicon"; Description: "Put a Bahi Sync shortcut on the desktop"
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "BahiSync"; ValueData: """{app}\BahiSync.exe"" --tray"; Tasks: startup; Flags: uninsdeletevalue
 
 [Dirs]
 ; the sync writes its log and settings here and keeps its own files up to date from the Bahi server,
