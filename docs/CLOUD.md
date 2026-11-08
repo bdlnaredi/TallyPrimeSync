@@ -81,3 +81,7 @@ Moving to another server later: install Bahi there, connect the same Google Driv
 - Restart: `cd /opt/tallyprimesync && sudo docker compose restart`. Logs: `sudo docker compose logs --tail 100 bahi`.
 - Run the install command again any time; it keeps the settings and brings Bahi up to date.
 - Your own domain later: point it (an A record) at the server's IP, change `DOMAIN=` in `/opt/tallyprimesync/.env`, then `sudo docker compose up -d`. Update the address in Bahi Sync and the phones.
+
+## Trying the cloud alongside Unraid
+
+Bahi Sync can feed both at once while you compare: on the Tally PC, Bahi Sync → **Settings** → **Also sync to** → the cloud address (`https://...`) and the sync token the installer printed → **Test connection** → **Save**. Each sync then goes to Unraid first and straight after to the cloud (log lines for the second server start with its address). Tally does the work twice, so a sync takes about twice as long. Phone entries made on either server go into Tally once; approvals, notes, staff logins and customer links are kept on each server separately. When you've decided, clear the second address (or move the cloud address to the first box).
