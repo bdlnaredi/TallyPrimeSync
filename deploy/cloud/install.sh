@@ -16,6 +16,16 @@ ask()  { local v; read -r -p "$1" v </dev/tty || true; printf '%s' "$v"; }
 [ "$(id -u)" = 0 ] || fail "Run it with sudo (as in the instructions)."
 command -v curl >/dev/null || { apt-get update -qq && apt-get install -y -qq curl; }
 
+# ---- swap: the small free servers (1 GB, like Oracle's E2.1.Micro) need room to breathe
+mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+if [ "${mem_kb:-0}" -lt 2000000 ] && ! swapon --show | grep -q .; then
+  say "Adding 2 GB of swap (this server has little memory) ..."
+  if fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; then
+    chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+    grep -q "^/swapfile" /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+  fi
+fi
+
 # ---- Docker
 if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
   say "Installing Docker (a few minutes) ..."

@@ -20,7 +20,8 @@ Oracle gives every account a small server free for as long as you use it. Signin
 2. In the menu: **Compute → Instances → Create instance**.
    - Name: `bahi`.
    - Image: **Canonical Ubuntu 24.04**.
-   - Shape: **Ampere, VM.Standard.A1.Flex**, 1 OCPU and 6 GB memory (well within the free amount). If it says "out of capacity", try again later or pick another availability domain.
+   - Shape: **Ampere, VM.Standard.A1.Flex**, 1 OCPU and 6 GB memory (well within the free amount).
+     If it says **"Out of capacity"** (common in the Indian regions, which have one availability domain), either try again at another time of day, or pick **Specialty and previous generation → VM.Standard.E2.1.Micro** instead: also Always Free and nearly always available. It is small (1 GB memory), but enough for Bahi; the installer adds swap for it.
    - Networking: choose **Create new virtual cloud network** and **Create new public subnet**, then turn on **Automatically assign public IPv4 address**. (That switch is greyed out when a *private* subnet is picked. If you already have a network, make one with internet access first: menu, **Networking → Virtual cloud networks → Start VCN Wizard → Create VCN with Internet Connectivity**, then pick its **public** subnet here.)
    - SSH keys: **Generate a key pair for me**, then **Save private key** (keep this file safe; it's how you log in).
    - **Create**. After a minute it shows the **Public IP address**: note it.
