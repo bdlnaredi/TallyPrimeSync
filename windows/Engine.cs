@@ -270,9 +270,9 @@ namespace BahiSync
         }
 
         /// <summary>null when the server took the sign-in, else its message.</summary>
-        public static string SendCloud(string server, string token, string kind, string text)
+        public static string SendCloud(string server, string token, string kind, string text, string label)
         {
-            var body = new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "kind", kind }, { "text", text } });
+            var body = new JavaScriptSerializer().Serialize(new Dictionary<string, object> { { "kind", kind }, { "text", text }, { "label", label ?? "" } });
             var wc = new WebClient();
             wc.Headers.Add("Authorization", "Bearer " + token);
             wc.Headers.Add("Content-Type", "application/json");
@@ -281,6 +281,7 @@ namespace BahiSync
             {
                 var res = e.Response as HttpWebResponse;
                 if (res == null) return e.Message;
+                if ((int)res.StatusCode == 404) return "this server is too old for cloud backups (update it first)";
                 using (var r = new StreamReader(res.GetResponseStream()))
                 {
                     string j = r.ReadToEnd();

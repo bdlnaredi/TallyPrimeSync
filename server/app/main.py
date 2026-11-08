@@ -470,7 +470,7 @@ document.getElementById("a").addEventListener("change", function () {{
         if path == "/agent/cloud" and method == "POST":     # Bahi Sync on the Tally PC: Tools, connect Google Drive / OneDrive
             data = json.loads(self.body(65536) or b"{}")
             try:
-                st = cloud.connect(str(data.get("kind", "")), str(data.get("text", "")))
+                st = cloud.connect(str(data.get("kind", "")), str(data.get("text", "")), str(data.get("label", "")))
             except ValueError as e:
                 return self.send_json({"error": str(e)}, 400)
             threading.Thread(target=lambda: cloud.upload(backup.run()), daemon=True).start()   # a first copy now

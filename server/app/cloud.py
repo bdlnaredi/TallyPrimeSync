@@ -74,7 +74,7 @@ def token_from(text):
     return tok
 
 
-def connect(kind, text):
+def connect(kind, text, label=""):
     if kind not in KINDS:
         raise ValueError("Choose Google Drive or OneDrive.")
     tok = token_from(text)
@@ -92,7 +92,12 @@ def connect(kind, text):
             raise ValueError(f"OneDrive didn't accept the sign-in ({e}). Sign in again.")
         lines += ["type = onedrive", f"drive_id = {drv['id']}", f"drive_type = {drv.get('driveType', 'personal')}"]
     lines.append("token = " + json.dumps(tok, separators=(",", ":")))
+    # two Bahi servers on one Drive (Bahi Sync's "Also sync to") keep their backups apart
+    label = re.sub(r"[^A-Za-z0-9 .\-]", "", label or "")[:60].strip()
     with _lock:
+        s0 = _state()
+        s0["folder"] = f"Bahi Backups ({label})" if label else "Bahi Backups"
+        _save(s0)
         os.makedirs(CONF_DIR, exist_ok=True)
         with open(CONF + ".tmp", "w") as f:
             f.write("\n".join(lines) + "\n")
