@@ -21,7 +21,7 @@ Oracle gives every account a small server free for as long as you use it. Signin
    - Name: `bahi`.
    - Image: **Canonical Ubuntu 24.04**.
    - Shape: **Ampere, VM.Standard.A1.Flex**, 1 OCPU and 6 GB memory (well within the free amount). If it says "out of capacity", try again later or pick another availability domain.
-   - Networking: keep "Assign a public IPv4 address" on.
+   - Networking: choose **Create new virtual cloud network** and **Create new public subnet**, then turn on **Automatically assign public IPv4 address**. (That switch is greyed out when a *private* subnet is picked. If you already have a network, make one with internet access first: menu, **Networking → Virtual cloud networks → Start VCN Wizard → Create VCN with Internet Connectivity**, then pick its **public** subnet here.)
    - SSH keys: **Generate a key pair for me**, then **Save private key** (keep this file safe; it's how you log in).
    - **Create**. After a minute it shows the **Public IP address**: note it.
 3. Open the web ports: on the instance page click the **Subnet** link, then the **Default Security List**, then **Add Ingress Rules**, and add two rules:
