@@ -192,7 +192,7 @@ Install Tailscale on your phone and open `http://UNRAID-TAILSCALE-IP:8780`. You 
 2. Tap the download and **Install**. The first time, Android asks to allow installing from Chrome: tap **Settings → Allow from this source**, go back and tap **Install**.
 3. Open **Bahi**, type your server address (`https://books.yourdomain.com`) and tap **Connect**. Pass the Cloudflare email code if asked, then enter your **app password**.
 
-The app keeps an **offline copy** of everything (see Settings → Offline copy), opens PDFs and Excel files in your phone's apps, and shares invoices and ledgers straight to WhatsApp. When a new version is out, it offers to download it; install it over the old one and your login and saved data stay.
+The app keeps an **offline copy** of everything (see Settings → Offline copy), opens PDFs and Excel files in your phone's apps, and shares invoices and ledgers straight to WhatsApp. It checks for a new version every time you open it and twice a day in the background (with a notification). When one is ready it asks you to update, and an orange bar with **Update** stays at the top until you do. Tap **Update now**, then **Install**: your login and saved data stay. The first time, Android asks you to allow Bahi to install apps.
 
 Use the `https://` address: the offline copy needs it.
 
