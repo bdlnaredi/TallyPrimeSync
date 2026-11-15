@@ -2,6 +2,10 @@
 
 What changed in TallyPrimeSync, newest first. The version is the server version shown in the app under Reports. "Tally PC" is the sync on the PC that runs TallyPrime (Bahi Sync), which updates itself from the server.
 
+## 4.8.0 (15 November 2026)
+
+- **Log out from any screen:** a round button with your initial sits at the top right, next to refresh. It opens a menu with who is logged in (owner or staff), Settings, What's new, light or dark look, and **Log out**.
+
 ## 4.7.1 (15 November 2026)
 
 - **Tally PC 3.19:**
