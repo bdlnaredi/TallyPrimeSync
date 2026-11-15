@@ -2,6 +2,12 @@
 
 What changed in TallyPrimeSync, newest first. The version is the server version shown in the app under Reports. "Tally PC" is the sync on the PC that runs TallyPrime (Bahi Sync), which updates itself from the server.
 
+## 4.7.1 (15 November 2026)
+
+- **Tally PC 3.19:**
+  - when the Bahi server doesn't answer (it's restarting after an update, or the network drops for a moment), the sync waits and tries again after 5 and then 19 seconds instead of failing straight away;
+  - the log gives the real reason ("couldn't reach the Bahi server: Unable to connect ...", "server says: ...") instead of "Exception calling DownloadString".
+
 ## 4.7.0 (15 November 2026)
 
 - **"Data as of" date and time everywhere.**
