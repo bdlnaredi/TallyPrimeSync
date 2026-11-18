@@ -2,6 +2,10 @@
 
 What changed in TallyPrimeSync, newest first. The version is the server version shown in the app under Reports. "Tally PC" is the sync on the PC that runs TallyPrime (Bahi Sync), which updates itself from the server.
 
+## 4.24.0 (18 November 2026)
+
+- **GSTR-2B matching removed** (Reports): the screen, its upload and its files in new backups. Older backups that have GSTR-2B files still restore; those files are skipped.
+
 ## 4.23.1 (18 November 2026)
 
 - **GSTR-1 comparison: Tally's file is now accepted however it was saved.** The upload refused Tally's GSTR-1 export when Tally saved it as Unicode (UTF-16) or with extra details on its tags. It now reads those, and Tally's Excel export (.xlsx) too. Larger files (up to 40 MB) are taken, and a refused file now says why.
