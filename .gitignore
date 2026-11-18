@@ -18,3 +18,4 @@ android/local.properties
 agent/TallySync.running
 agent/TallySync.skipped
 agent/.update-*/
+agent/TallySync.gstr3b
