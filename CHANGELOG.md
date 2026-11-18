@@ -2,6 +2,10 @@
 
 What changed in TallyPrimeSync, newest first. The version is the server version shown in the app under Reports. "Tally PC" is the sync on the PC that runs TallyPrime (Bahi Sync), which updates itself from the server.
 
+## 4.29.0 (18 November 2026)
+
+- **GSTR-1 and GSTR-3B follow the return period set in Tally.** A voucher moved to another month's return in Tally counts in that month, not the month of its date. A voucher excluded from the returns counts nowhere. Before, a purchase moved to next month still counted in this month's ITC. Each return has a "Moved between returns" card listing these vouchers. The Tally PC reads every voucher again once, on the next sync, to pick up the marks.
+
 ## 4.28.0 (18 November 2026)
 
 - **GSTR-3B tables 5 and 6.1:**
