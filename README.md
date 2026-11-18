@@ -36,7 +36,7 @@ On a computer, Bahi switches to a wide layout with a menu down the left:
 - **Sales analysis:** customers and items against last year, item margins, month by month this year against last, and slow-moving stock.
 - **Excel downloads** of ledgers, vouchers, dues and analysis.
 - **Telegram:** a morning summary of yesterday's business, an alert when a large payment comes in, and ledger lookups: send the bot a party's name (spelt any way) and get their ledger and statement PDF.
-- **Reports:** Day Book, Profit & Loss, GST summary (output tax, input credit and net payable by month), and a group summary.
+- **Reports:** Day Book, Profit & Loss and a group summary.
 - **PDFs like TallyPrime prints:** Tax Invoice, Receipt/Payment/Journal voucher, and Ledger Account.
 - **Enter receipts, payments and sales orders on the phone.** They go into Tally at the next sync.
 - **Staff logins** that show each person only what you allow, with your approval for their entries.
