@@ -2,6 +2,14 @@
 
 What changed in TallyPrimeSync, newest first. The version is the server version shown in the app under Reports. "Tally PC" is the sync on the PC that runs TallyPrime (Bahi Sync), which updates itself from the server.
 
+## 4.21.0 (18 November 2026)
+
+- **Tally's GSTR-3B for every month:** the Tally PC (version 3.23) now reads Tally's GSTR-3B for every month of the financial year, even when nothing changed in Tally.
+  - Months it hasn't read yet are read first. After that each month is refreshed daily, and the latest two months every 15 minutes.
+  - Before this, only the latest two months were read after a change, so older months showed Bahi's own working instead of Tally's.
+- **Clear warning:** a month without Tally's figures now says so at the top, with a "Get Tally's figures" button. The Tally PC reads that month at its next sync.
+- A detailed GSTR-3B you uploaded is never replaced by a less detailed copy from the Tally PC.
+
 ## 4.20.1 (18 November 2026)
 
 - **GSTR-3B reads Tally's own lines:** 3.1a to 3.1e and 4(A) lines 1 to 5, exactly as Tally labels them in its detailed export (for example "3.1a. Outward Taxable Supplies"). 3.1(a), 3.1(c), 3.1(d), 4(A)(3) and 4(A)(5), with their values and tax, now come straight from those lines, never from the 3.1 heading total. Nothing is worked out where Tally has the line.
