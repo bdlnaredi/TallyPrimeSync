@@ -2,6 +2,10 @@
 
 What changed in TallyPrimeSync, newest first. The version is the server version shown in the app under Reports. "Tally PC" is the sync on the PC that runs TallyPrime (Bahi Sync), which updates itself from the server.
 
+## 4.26.0 (18 November 2026)
+
+- **GSTR-3B table 4(A), ITC available**, in its five rows: import of goods, import of services, inward supplies liable to reverse charge, inward supplies from ISD, and all other ITC. Each row lists the vouchers behind it: purchase bills and returns, expenses with GST, and the Stat Adjustment journals that take the credit (by their Additional Details). A ✓ shows when 4(A)(3) agrees with the reverse charge tax in 3.1(d), and each row compares with Tally's GSTR-3B export when it's uploaded.
+
 ## 4.25.0 (18 November 2026)
 
 - **GSTR-3B, rebuilt from scratch** (Reports, GSTR-3B), table by table as in Tally. Tables 3.1 and 3.2 first; the ITC tables come next.
